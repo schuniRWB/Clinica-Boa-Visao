@@ -2256,6 +2256,9 @@ function openCheckin(apptId){
 const XL_TIPOS = {
   pacientes:{nome:'Pacientes', cols:[['nid','NID',1,'1001'],['nome','Nome',1,'Maria José Chuni'],['idade','Idade',0,'34'],['sexo','Sexo',0,'F'],['contacto','Contacto',0,'841234567'],['morada','Morada',0,'Mocuba'],['ocupacao','Ocupação',0,'Professora'],['bi','BI',0,''],['nuit','NUIT',0,'']]},
   despesas:{nome:'Despesas', cols:[['data','Data',0,'2026-11-05'],['categoria','Categoria',1,'Renda'],['descricao','Descrição',1,'Renda de Novembro'],['fornecedor','Fornecedor',0,'Imobiliária X'],['fornecedorNuit','NUIT do fornecedor',0,''],['docFornecedor','Documento do fornecedor',0,'FT-123'],['base','Valor base',1,'25000'],['iva','IVA %',0,'0'],['estado','Estado (Paga/Pendente)',0,'Paga'],['metodo','Método de pagamento',0,'Numerário'],['ref','Referência',0,'']]},
+  especialidades:{nome:'Especialidades (com preço da consulta)', cat:'', cat_:'catalogo', cols:[['nome','Nome',1,'Oftalmologia'],['preco','Preço da consulta',1,'500']]},
+  tratamentos:{nome:'Tratamentos e procedimentos (com preços)', cols:[['nome','Nome',1,'Laser retina'],['categoria','Categoria (Tratamento/Procedimento/Enfermagem/Diária de internamento)',0,'Procedimento'],['preco','Preço',1,'2000'],['especialidades','Especialidades (separadas por ;)',0,'Oftalmologia']]},
+  exames:{nome:'Exames (com preços)', cols:[['nome','Nome',1,'Hemograma completo'],['preco','Preço',1,'350'],['especialidades','Especialidades (separadas por ;)',0,'']]},
   medicamentos:{nome:'Medicamentos e suprimentos de farmácia', cat:'Medicamento', cols:[['nome','Nome',1,'Paracetamol 500 mg'],['subtipo','Tipo (Comprimido/Xarope/Injetável/Pomada/Outro)',0,'Comprimido'],['preco','Preço de venda',1,'50'],['precoCompra','Preço de compra',0,'30'],['stock','Stock inicial',0,'200'],['stockMin','Stock mínimo',0,'20'],['validade','Validade',0,'2028-06-30'],['lote','Lote',0,'L2026-01']]},
   optica:{nome:'Produtos da óptica', cat:'Óptica', cols:[['nome','Nome',1,'Armação Ray 52'],['subtipo','Tipo (Armação/Lente/Óculos de sol/Óculos graduados/Acessório)',0,'Armação'],['preco','Preço de venda',1,'3500'],['precoCompra','Preço de compra',0,'2000'],['stock','Stock inicial',0,'10'],['stockMin','Stock mínimo',0,'2'],['validade','Validade',0,''],['lote','Lote',0,'']]}
 };
@@ -2283,7 +2286,7 @@ function xlTemplate(tipo){
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Dados');
   XLSX.writeFile(wb, 'modelo-importacao-'+tipo+'.xlsx');
 }
-function xlTipoMudou(){ xlState = null; el('xl-prev').innerHTML = ''; el('xl-file').value = ''; }
+function xlTipoMudou(){ el('xl-upd-box').style.display = ['especialidades','tratamentos','exames'].includes(el('xl-tipo').value) ? 'flex' : 'none'; xlState = null; el('xl-prev').innerHTML = ''; el('xl-file').value = ''; }
 async function xlLer(){
   if(currentUser.role!=='admin') return;
   const f = el('xl-file').files[0], tipo = el('xl-tipo').value, T = XL_TIPOS[tipo];
@@ -2298,7 +2301,7 @@ async function xlLer(){
     const mapa = {}; Object.keys(rows[0]).forEach(h=>{ const k = alias[xlNorm(String(h).replace(/\*/g,''))] || alias[xlNorm(String(h).replace(/\*/g,'').split('(')[0])]; if(k) mapa[h] = k; });
     const falta = T.cols.filter(c=>c[2] && !Object.values(mapa).includes(c[0])).map(c=>c[1]);
     if(falta.length) throw new Error('Faltam colunas obrigatórias: '+falta.join(', ')+'. Descarregue o modelo e use os mesmos cabeçalhos.');
-    const ok = [], erros = [], vistos = new Set();
+    const actualizar = !!(el('xl-upd') && el('xl-upd').checked), ok = [], erros = [], vistos = new Set();
     const nomesExist = new Set(medicamentos.map(m=>(m.nome||'').trim().toLowerCase())), nids = new Set(patients.map(x=>String(x.id)));
     rows.forEach((r,i)=>{
       const ln = i+2, o = {}; Object.entries(mapa).forEach(([h,k])=>{ o[k] = r[h]; });
@@ -2318,6 +2321,27 @@ async function xlLer(){
         const taxa = isNaN(xlNum(o.iva)) ? 0 : xlNum(o.iva); if(taxa<0||taxa>100) return erro('IVA % inválido.');
         const est = /pend/i.test(String(o.estado||'')) ? 'Pendente' : 'Paga', met = String(o.metodo||'').trim(), iva = r2(base*taxa/100);
         ok.push({data:d||todayStr(), categoria:cat, descricao:desc, desc, fornecedor:String(o.fornecedor||'').trim(), fornecedorNuit:String(o.fornecedorNuit||'').trim(), docFornecedor:String(o.docFornecedor||'').trim(), base:r2(base), ivaTaxa:taxa, ivaValor:iva, total:r2(base+iva), valor:r2(base+iva), estado:est, metodo: est==='Paga' ? (met||'Numerário') : '', refPagamento:String(o.ref||'').trim(), obs:'Importada de ficheiro Excel.'});
+      } else if(['especialidades','tratamentos','exames'].includes(tipo)){
+        const nome = String(o.nome||'').trim(), preco = xlNum(o.preco), lista = tipo==='especialidades' ? especialidades : tipo==='tratamentos' ? tratamentos : exames, ch = nome.toLowerCase();
+        if(!nome) return erro('Nome obrigatório.');
+        if(isNaN(preco) || preco<0 || (tipo!=='especialidades' && !(preco>0))) return erro('Preço inválido.');
+        if(vistos.has(ch)) return erro(`"${nome}" aparece repetido no ficheiro.`);
+        const existente = lista.find(x=>(x.nome||'').trim().toLowerCase()===ch);
+        if(existente && !actualizar) return erro(`"${nome}" já existe (não é alterado).`);
+        const rec = {nome, preco:r2(preco)};
+        if(tipo==='tratamentos'){
+          const cats = ['Tratamento','Procedimento','Enfermagem','Diária de internamento'], c = String(o.categoria||'').trim();
+          const cc = c ? cats.find(x=>xlNorm(x)===xlNorm(c)) : (existente&&existente.categoria)||'Tratamento';
+          if(!cc) return erro(`Categoria "${c}" inválida (use ${cats.join(', ')}).`);
+          rec.categoria = cc;
+        }
+        if(tipo!=='especialidades'){
+          const nomes = String(o.especialidades||'').split(/[;,]/).map(x=>x.trim()).filter(Boolean), ids = [];
+          for(const n of nomes){ const e = especialidades.find(x=>xlNorm(x.nome)===xlNorm(n)); if(!e) return erro(`Especialidade "${n}" não existe (importe primeiro as especialidades).`); ids.push(e.id); }
+          if(nomes.length || !existente) rec.especialidades = ids;
+        }
+        vistos.add(ch); if(existente){ rec.id = existente.id; rec._upd = true; }
+        ok.push(rec);
       } else {
         const nome = String(o.nome||'').trim(), preco = xlNum(o.preco), compra = o.precoCompra===''||o.precoCompra==null ? '' : xlNum(o.precoCompra), stock = o.stock===''||o.stock==null ? 0 : xlNum(o.stock), min = o.stockMin===''||o.stockMin==null ? 0 : xlNum(o.stockMin), val = xlData(o.validade);
         if(!nome) return erro('Nome obrigatório.');
@@ -2331,7 +2355,7 @@ async function xlLer(){
       }
     });
     xlState = {tipo, ok, erros};
-    const amostra = ok.slice(0,6).map(x=>`<tr>${(tipo==='pacientes'?[x.nid,x.nome,x.contacto]:tipo==='despesas'?[x.data,x.categoria,x.descricao,fmtMZN(x.total)]:[x.nome,x.subtipo,fmtMZN(x.preco),x.stock]).map(c=>`<td>${esc(String(c))}</td>`).join('')}</tr>`).join('');
+    const amostra = ok.slice(0,6).map(x=>`<tr>${(tipo==='pacientes'?[x.nid,x.nome,x.contacto]:tipo==='despesas'?[x.data,x.categoria,x.descricao,fmtMZN(x.total)]:['especialidades','tratamentos','exames'].includes(tipo)?[x.nome,x.categoria||'',fmtMZN(x.preco),x._upd?'(actualiza preço)':'novo']:[x.nome,x.subtipo,fmtMZN(x.preco),x.stock]).map(c=>`<td>${esc(String(c))}</td>`).join('')}</tr>`).join('');
     el('xl-prev').innerHTML = `<div class="muted-note" style="margin:10px 0;"><b>${ok.length}</b> linha(s) válida(s) · <b>${erros.length}</b> com problemas (ignoradas).</div>
       ${ok.length?`<div class="table-wrap"><table><tbody>${amostra}</tbody></table></div><div class="cell-sub">Pré-visualização das primeiras ${Math.min(6,ok.length)} linhas.</div>`:''}
       ${erros.length?`<div style="margin-top:8px;font-size:12.5px;color:var(--danger,#b42318);">${erros.slice(0,15).map(e=>`Linha ${e.ln}: ${esc(e.msg)}`).join('<br>')}${erros.length>15?`<br>… e mais ${erros.length-15}.`:''}</div>`:''}
@@ -2345,6 +2369,10 @@ async function xlImportar(){
   try{
     const stamp = Date.now(), agora = new Date().toISOString();
     if(tipo==='pacientes') await Store.bulkSet('patients', ok, prog);
+    else if(['especialidades','tratamentos','exames'].includes(tipo)){
+      const col = tipo, docs = ok.map((r,i)=>{ const {_upd, id, ...resto} = r; return {...resto, id: id || 'imp'+stamp+'_'+i, ...(tipo==='especialidades' && !id ? {ativo:true} : {})}; });
+      await Store.bulkSet(col, docs, prog);
+    }
     else if(tipo==='despesas'){ const nums = await docSeqN('DS', ok.length); await Store.bulkSet('despesas', ok.map((d,i)=>({...d, id:'imp'+stamp+'_'+i, numero:nums[i], registadoPor:currentUser.nome, criadoEm:agora})), prog); }
     else {
       const prods = ok.map((m,i)=>({...m, id:'imp'+stamp+'_'+i}));
@@ -2352,16 +2380,17 @@ async function xlImportar(){
       const movs = prods.filter(m=>m.stock>0).map((m,i)=>({id:'impm'+stamp+'_'+i, produtoId:m.id, produto:m.nome, tipo:'Entrada', delta:m.stock, saldoApos:m.stock, motivo:'Stock inicial (importação Excel)', lote:m.lote||'', validade:m.validade||'', precoCompra:m.precoCompra===''?null:m.precoCompra, ref:'', por:currentUser.nome, porId:currentUser.id, em:agora}));
       if(movs.length) await Store.bulkSet('movimentosStock', movs);
     }
-    audit('importacao_excel', 'Importação Excel', tipo, `${ok.length} importados · ${erros.length} ignorados`);
+    audit('importacao_excel', 'Importação Excel', tipo, `${ok.length} importados${ok.some(x=>x._upd)?' ('+ok.filter(x=>x._upd).length+' preços actualizados)':''} · ${erros.length} ignorados`);
     st.textContent = `✅ Importação concluída: ${ok.length} registo(s).`; toast(`✅ ${ok.length} registo(s) importados.`);
     xlState = null; btn.remove();
   }catch(e){ btn.disabled = false; st.textContent = '⚠️ Erro: '+e.message; }
 }
 function cardImportExcel(){
   return `<div class="card" style="margin-bottom:14px;"><h3>Importar ficheiros Excel</h3>
-    <div class="csub">Pacientes, despesas, medicamentos e suprimentos de farmácia, e produtos da óptica. Registos que já existem nunca são alterados.</div>
+    <div class="csub">Pacientes, despesas, especialidades, tratamentos e exames (com preços), medicamentos e suprimentos de farmácia, e produtos da óptica. Registos que já existem não são alterados, excepto o preço dos catálogos quando marcar essa opção.</div>
     <div class="field-row"><div class="field"><label>O que quer importar?</label><select id="xl-tipo" onchange="xlTipoMudou()">${Object.entries(XL_TIPOS).map(([k,v])=>`<option value="${k}">${esc(v.nome)}</option>`).join('')}</select></div>
       <div class="field"><label style="visibility:hidden;">Modelo</label><button class="btn" type="button" onclick="xlTemplate(el('xl-tipo').value)">⭳ Descarregar modelo Excel</button></div></div>
+    <label id="xl-upd-box" style="display:none;font-size:13px;margin-bottom:8px;gap:6px;align-items:center;"><input type="checkbox" id="xl-upd" onchange="if(el('xl-file').files[0]) xlLer()"> Actualizar o preço dos itens que já existem (pelo nome)</label>
     <div class="field"><label>Ficheiro (.xlsx, .xls ou .csv) — a 1.ª linha deve ter os cabeçalhos do modelo</label><input id="xl-file" type="file" accept=".xlsx,.xls,.csv" onchange="xlLer()"></div>
     <div id="xl-prev"></div></div>`;
 }
