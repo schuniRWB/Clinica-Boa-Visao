@@ -541,6 +541,7 @@ tbody tr:last-child td{border-bottom:none;}
       <div class="field"><label id="cat-nome-label">Nome</label><input id="cat-nome" type="text"></div>
       <div class="field" id="cat-categoria-box"><label>Categoria</label><select id="cat-categoria"><option>Tratamento</option><option>Procedimento</option><option>Diária de internamento</option><option>Enfermagem</option></select></div>
       <div class="field"><label>Preço (MZN)</label><input id="cat-preco" type="number" min="0" step="any"></div>
+      <div class="field" id="cat-esp-box"><label>Especialidades que podem requisitar este item</label><div id="cat-esp-list" style="display:flex;flex-wrap:wrap;gap:6px 14px;"></div><div class="cell-sub" style="margin-top:4px;">Se não marcar nenhuma, fica disponível para todas as especialidades.</div></div>
     </div>
     <div class="modal-foot">
       <button class="btn" onclick="closeModal('modal-catalogo')">Cancelar</button>
@@ -554,6 +555,7 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="modal-head"><h3 id="ordem-title">Prescrever tratamento</h3><button class="modal-close" onclick="closeModal('modal-ordem')">✕</button></div>
     <div class="modal-body">
       <div class="muted-note" id="ordem-info" style="margin-bottom:12px;"></div>
+      <label id="ordem-todas-box" style="display:none;font-size:12.5px;margin-bottom:8px;align-items:center;gap:6px;"><input type="checkbox" id="ordem-todas" onchange="ordemFiltroMudou()"> Mostrar também itens de outras especialidades (a lista mostra os de <b id="ordem-todas-nome"></b>)</label>
       <div id="ordem-items"></div>
       <button class="btn sm ghost" onclick="addOrdemRow()">+ Adicionar</button>
       <div class="field" style="margin-top:12px;"><label id="ordem-notas-label">Notas</label><textarea id="ordem-notas"></textarea></div>
@@ -1255,6 +1257,16 @@ const Store = {
     if(!d) throw new Error('nao-existe');
     const novo = calc(d); d[field] = novo; lsSetAll(col, arr); return novo;
   },
+  /* numeração sequencial sem repetições: reserva n números de forma atómica e devolve o primeiro */
+  async nextSeq(chave, n){
+    n = n||1;
+    if(USE_FIREBASE){
+      return await fsdb.runTransaction(async tx=>{ const ref = fsdb.collection('contadores').doc(String(chave)), sn = await tx.get(ref); const atual = sn.exists ? (Number(sn.data().ultimo)||0) : 0; tx.set(ref, {ultimo: atual+n}); return atual+1; });
+    }
+    const arr = lsGetAll('contadores'); let d = arr.find(x=>x.id===String(chave)); const atual = d ? (Number(d.ultimo)||0) : 0;
+    if(d) d.ultimo = atual+n; else arr.push({id:String(chave), ultimo:atual+n});
+    lsSetAll('contadores', arr); return atual+1;
+  },
   /* cria um documento só se ainda não existir (registos imutáveis: uma dose só pode ser registada uma vez) */
   async createOnce(col, id, data){
     if(USE_FIREBASE){
@@ -1381,6 +1393,7 @@ let beneficiarios=[], recebimentos=[], contasInt=[], tratamentosInt=[], moviment
 let camas=[], internamentos=[], cardex=[], administracoes=[], diarioEnf=[], sinaisVitais=[], passagensTurno=[], referenciacoes=[];
 let selectedInternId=null, intTab='cardex', intDia='';
 let tratamentos=[], exames=[], tratamentosPrescritos=[], pedidosExame=[];
+let catEspFiltro = '';
 let configDoc=null, users=[], patients=[], appointments=[], queue=[], especialidades=[],
     prontuarios=[], receitas=[], medicamentos=[], vendas=[], despesas=[], funcionarios=[], invoices=[];
 let currentUser = null;
@@ -1440,8 +1453,10 @@ const MENU = [
 
 
 /* ================= Utilities ================= */
+/* data local (Moçambique, UTC+2) de um instante ISO; evita que registos feitos depois da meia-noite caiam no dia anterior */
+function diaLocal(t){ if(!t) return ''; t = String(t); if(t.length<=10) return t; const d = new Date(t); if(isNaN(d)) return t.slice(0,10); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function todayStr(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
-function fmtDate(s){ if(!s) return "—"; const d=new Date(s+"T00:00:00"); return d.toLocaleDateString('pt-PT',{day:'2-digit',month:'short',year:'numeric'}); }
+function fmtDate(s){ if(!s) return "—"; const d=new Date(diaLocal(s)+"T00:00:00"); return d.toLocaleDateString('pt-PT',{day:'2-digit',month:'short',year:'numeric'}); }
 function fmtMZN(n){ return "MZN " + Number(n||0).toLocaleString('pt-PT',{minimumFractionDigits:0,maximumFractionDigits:0}); }
 function initials(name){ return (name||"?").split(" ").filter(w=>w.length>1).slice(0,2).map(w=>w[0]).join("").toUpperCase() || "?"; }
 function esc(s){ return (s||"").toString().replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
@@ -1574,7 +1589,10 @@ function canSeePatient(nid){
 function especialidadeById(id){ return especialidades.find(e=>e.id===id); }
 function medById(id){ return medicamentos.find(m=>m.id===id); }
 function nextNid(){ let max=0; patients.forEach(p=>{ const n=parseInt(p.nid||p.id,10); if(!isNaN(n)&&n>max) max=n; }); return max+1; }
-function docNum(prefix){ return prefix + "-" + Date.now().toString().slice(-7); }
+function docNum(prefix){ return prefix + "-" + Date.now().toString().slice(-7); }   // só para impressões provisórias, nunca para documentos guardados
+const fmtSeq = (prefix, ano, n) => `${prefix}-${ano}/${String(n).padStart(5,'0')}`;
+async function docSeq(prefix){ const ano = new Date().getFullYear(); return fmtSeq(prefix, ano, await Store.nextSeq(prefix+'-'+ano, 1)); }
+async function docSeqN(prefix, n){ const ano = new Date().getFullYear(), ini = await Store.nextSeq(prefix+'-'+ano, n); return Array.from({length:n}, (_,i)=>fmtSeq(prefix, ano, ini+i)); }
 
 /* ================= BOOT SEQUENCE ================= */
 function bootApp(){
@@ -2327,7 +2345,7 @@ async function xlImportar(){
   try{
     const stamp = Date.now(), agora = new Date().toISOString();
     if(tipo==='pacientes') await Store.bulkSet('patients', ok, prog);
-    else if(tipo==='despesas') await Store.bulkSet('despesas', ok.map((d,i)=>({...d, id:'imp'+stamp+'_'+i, numero:'DS-'+String(stamp+i).slice(-7), registadoPor:currentUser.nome, criadoEm:agora})), prog);
+    else if(tipo==='despesas'){ const nums = await docSeqN('DS', ok.length); await Store.bulkSet('despesas', ok.map((d,i)=>({...d, id:'imp'+stamp+'_'+i, numero:nums[i], registadoPor:currentUser.nome, criadoEm:agora})), prog); }
     else {
       const prods = ok.map((m,i)=>({...m, id:'imp'+stamp+'_'+i}));
       await Store.bulkSet('medicamentos', prods, prog);
@@ -2463,7 +2481,7 @@ function openPagamento(invId){
     catch(e){ closeModal('modal-pagamento'); toast("⚠️ Este documento já foi emitido ou anulado (talvez noutro posto de caixa)."); return; }
     const tipoDoc = ve>0 ? 'Factura' : 'VD';
     const agora = new Date().toISOString();
-    const upd = {numero: docNum(tipoDoc==='VD'?'VD':'FT'), tipoDoc, estado:'Pago', metodo, pagamentos:pm.pagamentos, refPagamento:refPag, pagoEm:agora, pagoPor:currentUser.nome,
+    const upd = {numero: await docSeq(tipoDoc==='VD'?'VD':'FT'), tipoDoc, estado:'Pago', metodo, pagamentos:pm.pagamentos, refPagamento:refPag, pagoEm:agora, pagoPor:currentUser.nome,
       emitidaEm:agora, emitidaPor:currentUser.nome, valorPaciente:vp, valorEntidade:ve, estadoEntidade: ve>0 ? 'Pendente' : ''};
     await Store.setDoc('invoices', inv.id, upd);
     if(inv.apptId){
@@ -2866,17 +2884,20 @@ function viewProntuario(){
       ${consultaAberta ? `<div class="row-flex" style="flex-wrap:wrap;">
         <button class="btn sm solid" onclick="openConsultaNota('${consultaAberta.id}','${p.id}')">📝 ${entradaAtual?'Editar diagnóstico':'Diagnóstico / registo clínico'}</button>
         <button class="btn sm" onclick="openRxModal('${p.id}','${consultaAberta.id}')">+ Prescrever</button>
-        <button class="btn sm" onclick="openOrdem('tratamento','${p.id}','${consultaAberta.id}')">+ Tratamento</button>
+        <button class="btn sm" onclick="openOrdem('tratamento','${p.id}','${consultaAberta.id}','','Tratamento')">+ Tratamento</button>
+        <button class="btn sm" onclick="openOrdem('tratamento','${p.id}','${consultaAberta.id}','','Procedimento')">+ Procedimento</button>
         <button class="btn sm" onclick="openOrdem('exame','${p.id}','${consultaAberta.id}')">+ Exames</button>
         <button class="btn sm accentb" onclick="finalizarConsulta('${consultaAberta.id}')">✔ Finalizar consulta</button>
       </div>` : consultaPronta ? `<div class="row-flex" style="flex-wrap:wrap;">
         <button class="btn sm solid" onclick="iniciarAtendimento('${consultaPronta.id}')">▶ Iniciar atendimento</button>
         <button class="btn sm" onclick="openRxModal('${p.id}','')">+ Prescrever</button>
-        <button class="btn sm" onclick="openOrdem('tratamento','${p.id}','')">+ Tratamento</button>
+        <button class="btn sm" onclick="openOrdem('tratamento','${p.id}','','','Tratamento')">+ Tratamento</button>
+        <button class="btn sm" onclick="openOrdem('tratamento','${p.id}','','','Procedimento')">+ Procedimento</button>
         <button class="btn sm" onclick="openOrdem('exame','${p.id}','')">+ Exames</button>
       </div>` : `<div class="row-flex" style="flex-wrap:wrap;"><span class="cell-sub">Sem consulta em atendimento neste momento.</span>
         <button class="btn sm" onclick="openRxModal('${p.id}','')">+ Prescrever</button>
-        <button class="btn sm" onclick="openOrdem('tratamento','${p.id}','')">+ Tratamento</button>
+        <button class="btn sm" onclick="openOrdem('tratamento','${p.id}','','','Tratamento')">+ Tratamento</button>
+        <button class="btn sm" onclick="openOrdem('tratamento','${p.id}','','','Procedimento')">+ Procedimento</button>
         <button class="btn sm" onclick="openOrdem('exame','${p.id}','')">+ Exames</button></div>`}
     </div>
   </div>
@@ -3084,7 +3105,7 @@ async function issueRx(){
   }).filter(i=>i.medicamento);
   if(!itens.length){ toast("⚠️ Adicione pelo menos um medicamento."); return; }
   const p = patientByNid(window._rxPatient);
-  const numero = docNum("RX");
+  const numero = await docSeq("RX");
   await Store.addDoc('receitas', {
     numero, pacienteNid: window._rxPatient, pacienteNome: p.nome, apptId: window._rxAppt||'',
     medicoId: currentUser.id, medicoNome: currentUser.nome, data: todayStr(),
@@ -3253,7 +3274,7 @@ function farmMovimentos(){
 }
 function movRows(){
   const q = (movFiltro.q||'').toLowerCase();
-  const l = movimentosStock.filter(m=>(!q || (m.produto||'').toLowerCase().includes(q)) && (!movFiltro.tipo || m.tipo===movFiltro.tipo) && (!movFiltro.de || (m.em||'').slice(0,10)>=movFiltro.de) && (!movFiltro.ate || (m.em||'').slice(0,10)<=movFiltro.ate)).slice(0,300);
+  const l = movimentosStock.filter(m=>(!q || (m.produto||'').toLowerCase().includes(q)) && (!movFiltro.tipo || m.tipo===movFiltro.tipo) && (!movFiltro.de || diaLocal(m.em)>=movFiltro.de) && (!movFiltro.ate || diaLocal(m.em)<=movFiltro.ate)).slice(0,300);
   return l.map(m=>`<tr><td class="cell-sub">${new Date(m.em).toLocaleString('pt-PT')}</td><td class="cell-name">${esc(m.produto)}</td><td><span class="tag grey">${esc(m.tipo)}</span></td><td><b style="color:var(--${m.delta>0?'ok':'danger'});">${m.delta>0?'+':''}${m.delta}</b></td><td>${m.saldoApos}</td>
     <td class="cell-sub">${esc(m.motivo||'')}${m.ref?' · '+esc(m.ref):''}</td><td class="cell-sub">${esc(m.lote||'')}${m.validade?' · '+fmtDate(m.validade):''}</td><td>${esc(m.por||'')}</td></tr>`).join('') || `<tr><td colspan="8"><div class="empty">Sem movimentos.</div></td></tr>`;
 }
@@ -3370,7 +3391,7 @@ async function confirmVenda(){
   let usadoV = 0;
   itens.forEach(it=>{ const m = medById(it.produtoId), cv = dividirCobertura(it.subtotal, pagador, m && m.categoria==='Óptica' ? 'optica' : 'medicamento', it.produtoId, pacienteId, null, usadoV); it.valorEntidade = cv.valorEntidade; usadoV += cv.valorEntidade; });
   const div = {valorEntidade:r2(itens.reduce((t,i)=>t+(i.valorEntidade||0),0))}; div.valorPaciente = r2(total-div.valorEntidade);
-  const tipoDoc = div.valorEntidade>0 ? 'Factura' : 'VD', numero = docNum(tipoDoc==='VD' ? 'VD' : 'FT');
+  const tipoDoc = div.valorEntidade>0 ? 'Factura' : 'VD', numero = await docSeq(tipoDoc==='VD' ? 'VD' : 'FT');
   const pm = div.valorPaciente>0 ? pmLer('vd-pm', div.valorPaciente) : {pagamentos:[], metodo:'Conta a crédito', refPagamento:''};
   if(pm.erro){ toast('⚠️ '+pm.erro); return; }
   const metodo = pm.metodo, agora = new Date().toISOString();
@@ -3472,7 +3493,7 @@ async function confirmDispensar(){
   if(pm0.erro){ toast('⚠️ '+pm0.erro); return; }
   try{ await Store.claim('receitas', r.id, 'estado', 'Pendente', 'Dispensada'); }
   catch(e){ closeModal('modal-dispensar'); toast("⚠️ Esta receita já foi dispensada (talvez noutro posto)."); return; }
-  const tipoDoc = ve>0 ? 'Factura' : 'VD', numero = docNum(tipoDoc==='VD' ? 'VD' : 'FT'), pm = pm0, metodo = pm.metodo, agora = new Date().toISOString();
+  const tipoDoc = ve>0 ? 'Factura' : 'VD', numero = await docSeq(tipoDoc==='VD' ? 'VD' : 'FT'), pm = pm0, metodo = pm.metodo, agora = new Date().toISOString();
   try{ await Store.takeStock(itens.map(i=>({id:i.produtoId, qtd:i.qtd, nome:i.nome})), {tipo:'Dispensa', ref:r.numero, motivo:'Dispensa de receita'}); }
   catch(e){
     await Store.setDoc('receitas', r.id, {estado:'Pendente'});
@@ -3516,7 +3537,7 @@ function periodoDatas(per){
   if(per.tipo==='ano') return {de:`${y}-01-01`, ate:h, nome:'Este ano'};
   return {de:per.de||h, ate:per.ate||h, nome:'Intervalo personalizado'};
 }
-const diaDe = i => (i.pagoEm||i.emitidaEm||i.data||'').slice(0,10);
+const diaDe = i => diaLocal(i.pagoEm||i.emitidaEm||i.data||'');
 function viewFinanceiro(){
   const tabs = [['resumo','Resumo'],['receber','A receber (entidades)'],['internamentos','Contas de internamento'],['despesas','Despesas e contas a pagar'],['inss','INSS'],['relatorios','Relatórios'],['parametros','Parâmetros fiscais']];
   return `
@@ -3700,7 +3721,7 @@ async function saveDespesa(){
     await Store.setDoc('despesas', editId, data);
     audit('despesa_editada', 'Despesa', atual.numero||editId, `motivo: ${motivo}`);
   } else {
-    await Store.addDoc('despesas', {...data, numero: docNum('DS'), registadoPor: currentUser.nome, criadoEm: new Date().toISOString()});
+    await Store.addDoc('despesas', {...data, numero: await docSeq('DS'), registadoPor: currentUser.nome, criadoEm: new Date().toISOString()});
   }
   closeModal('modal-despesa');
   toast("✅ Despesa guardada.");
@@ -3763,7 +3784,7 @@ async function confirmPagamentoInss(){
   const c = inssCalc(inssMes), valor = r2(el('inss-valor').value);
   if(c.pago){ closeModal('modal-inss'); toast("⚠️ O INSS deste mês já está registado como pago."); return; }
   if(!(valor>0)){ toast("⚠️ Indique o valor pago."); return; }
-  await Store.addDoc('despesas', {numero: docNum('DS'), data: el('inss-data').value||todayStr(), categoria:'INSS', descricao:`Contribuições INSS — ${inssMes}`, desc:`Contribuições INSS — ${inssMes}`,
+  await Store.addDoc('despesas', {numero: await docSeq('DS'), data: el('inss-data').value||todayStr(), categoria:'INSS', descricao:`Contribuições INSS — ${inssMes}`, desc:`Contribuições INSS — ${inssMes}`,
     fornecedor:'INSS — Instituto Nacional de Segurança Social', fornecedorNuit:'', docFornecedor: el('inss-ref').value.trim(), base:valor, ivaTaxa:0, ivaValor:0, total:valor, valor,
     estado:'Paga', metodo: el('inss-metodo').value, refPagamento: el('inss-ref').value.trim(), inssMes, inssTrabalhador:c.totTrab, inssEmpregador:c.totEmp,
     registadoPor: currentUser.nome, criadoEm: new Date().toISOString()});
@@ -4266,7 +4287,7 @@ async function resetSistema(){
   if(!confirm("ATENÇÃO: isto vai apagar PERMANENTEMENTE todos os dados do sistema — pacientes, consultas, facturas, receitas, stock, vendas, despesas, funcionários, especialidades e utilizadores. Esta ação não pode ser desfeita. Continuar?")) return;
   const confirmText = prompt('Para confirmar, escreva exactamente: APAGAR TUDO');
   if(confirmText !== 'APAGAR TUDO'){ toast("Reset cancelado — texto de confirmação não corresponde."); return; }
-  const collections = ['patients','appointments','queue','invoices','especialidades','prontuarios','receitas','medicamentos','vendas','despesas','funcionarios','alertas','emails','tratamentos','exames','tratamentosPrescritos','pedidosExame','empresas','seguradoras','camas','internamentos','cardex','administracoes','diarioEnfermagem','sinaisVitais','passagensTurno','referenciacoes','beneficiarios','recebimentos','contasInt','tratamentosInt','movimentosStock','planos','internadosAtivos','users','config'];   // 'auditoria' é preservada
+  const collections = ['contadores','patients','appointments','queue','invoices','especialidades','prontuarios','receitas','medicamentos','vendas','despesas','funcionarios','alertas','emails','tratamentos','exames','tratamentosPrescritos','pedidosExame','empresas','seguradoras','camas','internamentos','cardex','administracoes','diarioEnfermagem','sinaisVitais','passagensTurno','referenciacoes','beneficiarios','recebimentos','contasInt','tratamentosInt','movimentosStock','planos','internadosAtivos','users','config'];   // 'auditoria' é preservada
   toast("⏳ A apagar todos os dados…", 60000);
   auditSuspended = true;
   try{
@@ -4326,22 +4347,25 @@ function viewCatalogo(tipo){
     <div class="page-actions"><button class="btn solid" onclick="openCatalogo('${tipo}')">+ Novo ${c.singular}</button></div>
   </div>
   <div class="card">
-    <div class="toolbar"><input id="cat-search" type="text" class="grow" placeholder="Pesquisar ${c.singular}…" oninput="filterCatalogo('${tipo}',this.value)"></div>
+    <div class="toolbar"><input id="cat-search" type="text" class="grow" placeholder="Pesquisar ${c.singular}…" oninput="filterCatalogo('${tipo}',this.value)">
+      <select onchange="catEspFiltro=this.value;filterCatalogo('${tipo}',el('cat-search').value)"><option value="">Todas as especialidades</option>${especialidades.map(e=>`<option value="${e.id}" ${catEspFiltro===e.id?'selected':''}>${esc(e.nome)}</option>`).join('')}</select></div>
     <div class="table-wrap"><table>
-      <thead><tr><th>${isT?'Tratamento':'Exame'}</th>${isT?'<th>Categoria</th>':''}<th>Preço</th><th></th></tr></thead>
+      <thead><tr><th>${isT?'Tratamento / procedimento':'Exame'}</th>${isT?'<th>Categoria</th>':''}<th>Especialidades</th><th>Preço</th><th></th></tr></thead>
       <tbody id="cat-tbody">${catalogoRows(tipo, c.lista())}</tbody>
     </table></div>
   </div>`;
 }
 function catalogoRows(tipo, lista){
-  if(!lista.length) return `<tr><td colspan="4"><div class="empty">${tipo==='tratamento'?'Nenhum tratamento cadastrado.':'Nenhum exame cadastrado.'} Use o botão "+ Novo" para começar o preçário.</div></td></tr>`;
-  return lista.map(i=>`<tr><td class="cell-name">${esc(i.nome)}</td>${tipo==='tratamento'?`<td><span class="tag grey">${esc(i.categoria||'Tratamento')}</span></td>`:''}<td><b>${fmtMZN(i.preco)}</b></td><td style="white-space:nowrap;">
+  if(!lista.length) return `<tr><td colspan="5"><div class="empty">${tipo==='tratamento'?'Nenhum tratamento cadastrado.':'Nenhum exame cadastrado.'} Use o botão "+ Novo" para começar o preçário.</div></td></tr>`;
+  return lista.map(i=>`<tr><td class="cell-name">${esc(i.nome)}</td>${tipo==='tratamento'?`<td><span class="tag grey">${esc(i.categoria||'Tratamento')}</span></td>`:''}<td class="cell-sub">${espNomes(i)}</td><td><b>${fmtMZN(i.preco)}</b></td><td style="white-space:nowrap;">
     <button class="btn sm ghost" onclick="openCatalogo('${tipo}','${i.id}')">Editar</button>
     <button class="btn sm danger" onclick="deleteCatalogo('${tipo}','${i.id}')">Apagar</button></td></tr>`).join("");
 }
+function espNomes(i){ const ids = i.especialidades||[]; return ids.length ? ids.map(id=>{ const e = especialidades.find(x=>x.id===id); return e ? esc(e.nome) : ''; }).filter(Boolean).join(', ') || 'Todas' : 'Todas'; }
+function itemDaEspecialidade(i, espId){ return !espId || !(i.especialidades&&i.especialidades.length) || i.especialidades.includes(espId); }
 function filterCatalogo(tipo, q){
   q = (q||'').toLowerCase();
-  el('cat-tbody').innerHTML = catalogoRows(tipo, catCfg(tipo).lista().filter(i=>(i.nome||'').toLowerCase().includes(q)));
+  el('cat-tbody').innerHTML = catalogoRows(tipo, catCfg(tipo).lista().filter(i=>(i.nome||'').toLowerCase().includes(q) && (!catEspFiltro || itemDaEspecialidade(i, catEspFiltro))));
 }
 function openCatalogo(tipo, id){
   const c = catCfg(tipo), item = id ? c.lista().find(x=>x.id===id) : null;
@@ -4351,6 +4375,8 @@ function openCatalogo(tipo, id){
   el('cat-nome').value = item ? item.nome : '';
   el('cat-preco').value = item ? item.preco : '';
   el('cat-categoria-box').style.display = tipo==='tratamento' ? '' : 'none'; el('cat-categoria').value = item && item.categoria ? item.categoria : 'Tratamento';
+  const sel = (item && item.especialidades) || [];
+  el('cat-esp-list').innerHTML = especialidades.map(e=>`<label style="display:flex;gap:5px;align-items:center;font-size:13px;"><input type="checkbox" class="cat-esp-cb" value="${e.id}" ${sel.includes(e.id)?'checked':''}> ${esc(e.nome)}</label>`).join('') || '<span class="cell-sub">Ainda não há especialidades.</span>';
   openModal('modal-catalogo');
 }
 async function saveCatalogo(){
@@ -4359,7 +4385,7 @@ async function saveCatalogo(){
   if(!nome){ toast("⚠️ Indique o nome."); return; }
   if(!(preco>0)){ toast("⚠️ Indique o preço (maior que zero)."); return; }
   if(c.lista().some(i=>i.id!==editId && (i.nome||'').trim().toLowerCase()===nome.toLowerCase())){ toast("⚠️ Já existe um item com este nome."); return; }
-  const dados = {nome, preco}; if(tipo==='tratamento') dados.categoria = el('cat-categoria').value;
+  const dados = {nome, preco, especialidades:[...document.querySelectorAll('.cat-esp-cb:checked')].map(c=>c.value)}; if(tipo==='tratamento') dados.categoria = el('cat-categoria').value;
   if(editId) await Store.setDoc(c.col, editId, dados); else await Store.addDoc(c.col, dados);
   closeModal('modal-catalogo');
   toast(`✅ ${tipo==='tratamento'?'Tratamento':'Exame'} guardado.`);
@@ -4374,21 +4400,39 @@ async function deleteCatalogo(tipo, id){
 function ordemCol(tipo){ return tipo==='tratamento' ? 'tratamentosPrescritos' : 'pedidosExame'; }
 function ordemLista(tipo){ return tipo==='tratamento' ? tratamentosPrescritos : pedidosExame; }
 function ordemPagador(apptId, intId){ if(intId){ const i = internamentos.find(x=>x.id===intId); if(i) return i.pagador || {tipo:'individual'}; } return pagadorDe(apptId ? appointments.find(x=>x.id===apptId) : null); }
-function listaOrdem(tipo){ return catCfg(tipo).lista().filter(c=>tipo!=='tratamento' || c.categoria!=='Diária de internamento'); }
-function openOrdem(tipo, pacienteNid, apptId, intId){
+function listaOrdem(tipo){
+  const m = el('modal-ordem'), cat = m ? (m.dataset.cat||'') : '', esp = m ? (m.dataset.esp||'') : '';
+  return catCfg(tipo).lista().filter(c=>{
+    if(tipo==='tratamento'){
+      if(c.categoria==='Diária de internamento') return false;
+      if(cat==='Procedimento' && c.categoria!=='Procedimento') return false;
+      if(cat==='Tratamento' && c.categoria==='Procedimento') return false;
+    }
+    return itemDaEspecialidade(c, esp);
+  });
+}
+function ordemFiltroMudou(){
+  const m = el('modal-ordem'); m.dataset.esp = el('ordem-todas').checked ? '' : (m.dataset.espCtx||'');
+  el('ordem-items').innerHTML = ''; addOrdemRow();
+}
+function openOrdem(tipo, pacienteNid, apptId, intId, categoria){
   if(!['admin','medico'].includes(currentUser.role) || !canSeePatient(pacienteNid)) return;
-  const cat = listaOrdem(tipo);
-  if(!cat.length){ toast(tipo==='tratamento' ? "⚠️ O Administrador ainda não cadastrou tratamentos e preços." : "⚠️ O Administrador ainda não cadastrou exames e preços."); return; }
+  const m = el('modal-ordem'), ap = apptId ? appointments.find(x=>x.id===apptId) : null, espCtx = ap && ap.especialidadeId ? ap.especialidadeId : '';
+  m.dataset.tipo = tipo; m.dataset.nid = pacienteNid; m.dataset.apptId = apptId||''; m.dataset.intId = intId||''; m.dataset.cat = categoria||''; m.dataset.espCtx = espCtx; m.dataset.esp = espCtx;
+  const cat = listaOrdem(tipo), isProc = categoria==='Procedimento';
+  if(!cat.length && espCtx){ m.dataset.esp = ''; }
+  if(!listaOrdem(tipo).length){ toast(tipo==='tratamento' ? `⚠️ O Administrador ainda não cadastrou ${isProc?'procedimentos':'tratamentos'} e preços.` : "⚠️ O Administrador ainda não cadastrou exames e preços."); return; }
   const p = patientByNid(pacienteNid), isT = tipo==='tratamento', pg = ordemPagador(apptId, intId);
-  const m = el('modal-ordem'); m.dataset.tipo = tipo; m.dataset.nid = pacienteNid; m.dataset.apptId = apptId||''; m.dataset.intId = intId||'';
-  el('ordem-title').textContent = isT ? 'Prescrever tratamento' : 'Solicitar exames laboratoriais';
+  const espObj = espCtx ? especialidadeById(espCtx) : null, todasBox = el('ordem-todas-box');
+  todasBox.style.display = espObj ? '' : 'none'; el('ordem-todas').checked = !m.dataset.esp && !!espObj; el('ordem-todas-nome').textContent = espObj ? espObj.nome : '';
+  el('ordem-title').textContent = isT ? (isProc ? 'Requisitar procedimento' : 'Prescrever tratamento') : 'Solicitar exames laboratoriais';
   el('ordem-info').innerHTML = `Paciente: <b>${esc(p?p.nome:'')}</b> · NID ${esc(pacienteNid)}${pg.tipo!=='individual' ? ` · <span class="tag ${pg.tipo==='empresa'?'blue':'amber'}">${esc(pagLabel(pg))}</span> (preços contratuais)` : ''}`;
-  el('ordem-notas-label').textContent = isT ? 'Instruções / notas do tratamento' : 'Indicação clínica';
+  el('ordem-notas-label').textContent = isT ? (isProc ? 'Indicação / notas do procedimento' : 'Instruções / notas do tratamento') : 'Indicação clínica';
   el('ordem-notas').value = '';
   el('ordem-aviso').textContent = isT
-    ? 'O paciente segue para o Caixa, onde é emitido o documento. Só depois da confirmação no Caixa o tratamento pode ser iniciado.'
+    ? (isProc ? 'O paciente segue para o Caixa, onde é emitido o documento. Só depois da confirmação no Caixa o procedimento pode ser realizado.' : 'O paciente segue para o Caixa, onde é emitido o documento. Só depois da confirmação no Caixa o tratamento pode ser iniciado.')
     : 'O paciente segue para o Caixa, onde é emitido o documento. Só depois da confirmação no Caixa os exames podem ser realizados.';
-  el('ordem-confirm').textContent = isT ? 'Prescrever' : 'Solicitar exames';
+  el('ordem-confirm').textContent = isT ? (isProc ? 'Requisitar procedimento' : 'Prescrever') : 'Solicitar exames';
   el('ordem-items').innerHTML = '';
   addOrdemRow();
   openModal('modal-ordem');
@@ -4417,22 +4461,23 @@ function ordRecalc(){
 async function confirmOrdem(){
   const m = el('modal-ordem'), tipo = m.dataset.tipo, nid = m.dataset.nid, isT = tipo==='tratamento';
   if(!canSeePatient(nid)) return;
-  const pg = ordemPagador(m.dataset.apptId, m.dataset.intId), ent = entidadeDoPagador(pg), cat = listaOrdem(tipo), itens = [];
+  const pg = ordemPagador(m.dataset.apptId, m.dataset.intId), ent = entidadeDoPagador(pg), cat = listaOrdem(tipo), itens = [], isProc = m.dataset.cat==='Procedimento';
   document.querySelectorAll('#ordem-items .ord-row').forEach(row=>{
     const c = cat.find(x=>x.id===row.querySelector('select').value), qi = row.querySelector('input');
     const q = qi ? Math.floor(Number(qi.value)||0) : 1;
     if(c && q>0){ const pu = precoContratual(ent, tipo, c.id, c.preco); itens.push({catId:c.id, nome:c.nome, precoRef:r2(c.preco), precoUnit:pu, quantidade:q, subtotal:r2(pu*q)}); }
   });
-  if(!itens.length){ toast(isT ? "⚠️ Adicione pelo menos um tratamento." : "⚠️ Adicione pelo menos um exame."); return; }
+  if(!itens.length){ toast(isT ? (isProc ? "⚠️ Adicione pelo menos um procedimento." : "⚠️ Adicione pelo menos um tratamento.") : "⚠️ Adicione pelo menos um exame."); return; }
   const total = r2(itens.reduce((t,i)=>t+i.subtotal, 0)), ref = r2(itens.reduce((t,i)=>t+i.precoRef*i.quantidade, 0));
   let usado = 0;
   itens.forEach(it=>{ const cv = dividirCobertura(it.subtotal, pg, tipo, it.catId, nid, null, usado); it.valorEntidade = cv.valorEntidade; it.valorPaciente = cv.valorPaciente; if(cv.naoCoberto) it.naoCoberto = cv.motivoNaoCoberto; usado += cv.valorEntidade; });
   const div = {valorEntidade:r2(itens.reduce((t,i)=>t+i.valorEntidade,0))}; div.valorPaciente = r2(total-div.valorEntidade);
-  const p = patientByNid(nid), numero = docNum(isT ? 'TR' : 'EX');
+  const p = patientByNid(nid), numero = await docSeq(isT ? 'TR' : 'EX');
   const ordem = {
     numero, pacienteNid: nid, pacienteNome: p?p.nome:'', medicoId: currentUser.id, medicoNome: currentUser.nome,
     apptId: m.dataset.apptId||'', data: todayStr(), itens, total, pagador: pg, notas: el('ordem-notas').value.trim(),
-    estado: 'Aguarda pagamento', criadoEm: new Date().toISOString()
+    estado: 'Aguarda pagamento', criadoEm: new Date().toISOString(), categoria: isT ? (isProc ? 'Procedimento' : 'Tratamento') : 'Exame',
+    especialidadeId: m.dataset.espCtx||'', especialidadeNome: m.dataset.espCtx ? ((especialidadeById(m.dataset.espCtx)||{}).nome||'') : ''
   };
   if(m.dataset.intId){   // paciente internado: o exame é lançado na conta do internamento (sem passar pelo Caixa) e fica logo liberado
     const intI = internamentos.find(x=>x.id===m.dataset.intId);
@@ -4446,16 +4491,16 @@ async function confirmOrdem(){
     return;
   }
   const ordemId = await Store.addDoc(ordemCol(tipo), ordem);
-  const servico = (isT ? 'Tratamento: ' : 'Exames: ') + itens.map(i=>i.nome + (i.quantidade>1 ? ' ×'+i.quantidade : '')).join(', ');
+  const servico = (isT ? (isProc ? 'Procedimento: ' : 'Tratamento: ') : 'Exames: ') + itens.map(i=>i.nome + (i.quantidade>1 ? ' ×'+i.quantidade : '')).join(', ');
   const invId = await Store.addDoc('invoices', {
-    numero:'', pacienteNid: nid, pacienteNome: p?p.nome:'', tipo: isT?'Tratamento':'Exame', servico,
+    numero:'', pacienteNid: nid, pacienteNome: p?p.nome:'', tipo: isT?'Tratamento':'Exame', categoria: isT ? (isProc ? 'Procedimento' : 'Tratamento') : 'Exame', servico,
     itens: itens.map(i=>({nome:i.nome, quantidade:i.quantidade, precoUnit:i.precoUnit, subtotal:i.subtotal})),
     valor: total, precoReferencia: ref, valorEntidade: div.valorEntidade, valorPaciente: div.valorPaciente, pagador: pg,
     metodo:'', estado:'Pendente', data: todayStr(), ordemTipo: tipo, ordemId   // sem apptId: não mexe na consulta
   });
   await Store.setDoc(ordemCol(tipo), ordemId, {invoiceId: invId});
   closeModal('modal-ordem');
-  toast(`✅ ${isT?'Tratamento prescrito':'Exames solicitados'}. O paciente segue para o Caixa, onde é emitido o documento.`, 5000);
+  toast(`✅ ${isT?(isProc?'Procedimento requisitado':'Tratamento prescrito'):'Exames solicitados'}. O paciente segue para o Caixa, onde é emitido o documento.`, 5000);
   printDoc(renderOrdemDoc(tipo, {...ordem, id: ordemId}));
 }
 function podeGerirOrdem(o){ return ['admin','medico'].includes(currentUser.role) && canSeePatient(o.pacienteNid); }
@@ -4513,12 +4558,12 @@ function cardOrdens(nid){
   const ex = pedidosExame.filter(x=>String(x.pacienteNid)===String(nid)).sort(desc);
   const meuOuAdmin = o => currentUser.role==='admin' || o.medicoId===currentUser.id;
   const cab = o => `<div class="row-flex" style="justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;">
-    <div><div class="cell-name" style="font-size:12.8px;">${o.itens.map(i=>esc(i.nome)+(i.quantidade>1?' ×'+i.quantidade:'')).join(', ')}</div>
-    <div class="cell-sub">${fmtDate(o.data)} · ${esc(o.medicoNome)} · ${fmtMZN(o.total)}${o.factura?' · Factura '+esc(o.factura):''}</div></div>${statusTag(o.estado)}</div>`;
+    <div><div class="cell-name" style="font-size:12.8px;">${o.categoria==='Procedimento'?'<span class="tag blue">Procedimento</span> ':''}${o.itens.map(i=>esc(i.nome)+(i.quantidade>1?' ×'+i.quantidade:'')).join(', ')}</div>
+    <div class="cell-sub">${fmtDate(o.data)} · ${esc(o.medicoNome)} · ${fmtMZN(o.total)}${o.especialidadeNome?' · '+esc(o.especialidadeNome):''}${o.factura?' · Factura '+esc(o.factura):''}</div></div>${statusTag(o.estado)}</div>`;
   const trHtml = tr.map(o=>{
     let acao = '';
-    if(o.estado==='Aguarda pagamento') acao = `<span class="cell-sub">⏳ Aguarda pagamento no Caixa — ainda não pode iniciar</span>${meuOuAdmin(o)?`<button class="btn sm" onclick="cancelarOrdem('tratamento','${o.id}')">Cancelar</button>`:''}`;
-    else if(o.estado==='Pago') acao = podeGerirOrdem(o) ? `<button class="btn sm solid" onclick="iniciarTratamento('${o.id}')">▶ Iniciar tratamento</button>` : '';
+    if(o.estado==='Aguarda pagamento') acao = `<span class="cell-sub">⏳ Aguarda pagamento no Caixa — ainda não pode ${o.categoria==='Procedimento'?'ser realizado':'iniciar'}</span>${meuOuAdmin(o)?`<button class="btn sm" onclick="cancelarOrdem('tratamento','${o.id}')">Cancelar</button>`:''}`;
+    else if(o.estado==='Pago') acao = podeGerirOrdem(o) ? `<button class="btn sm solid" onclick="iniciarTratamento('${o.id}')">▶ ${o.categoria==='Procedimento'?'Iniciar procedimento':'Iniciar tratamento'}</button>` : '';
     else if(o.estado==='Em curso') acao = podeGerirOrdem(o) ? `<button class="btn sm accentb" onclick="concluirTratamento('${o.id}')">✔ Concluir</button>` : '';
     return `<div class="ord-card">${cab(o)}${o.notas?`<div class="cell-sub" style="margin-top:3px;">${esc(o.notas)}</div>`:''}
       <div class="row-flex" style="margin-top:6px;flex-wrap:wrap;">${acao}<button class="btn sm ghost" onclick="reimprimirOrdem('tratamento','${o.id}')">🖶</button></div></div>`;
@@ -4752,7 +4797,7 @@ function aplicarFiltroAuditoria(){
   const q = (el('aud-q').value||'').toLowerCase(), ent = el('aud-ent').value, de = el('aud-de').value, ate = el('aud-ate').value;
   const lista = auditoria.filter(a=>{
     if(ent && a.entidade!==ent) return false;
-    const dia = (a.em||'').slice(0,10);
+    const dia = diaLocal(a.em);
     if(de && dia<de) return false;
     if(ate && dia>ate) return false;
     if(!q) return true;
@@ -4762,7 +4807,7 @@ function aplicarFiltroAuditoria(){
 }
 
 /* ================= CÓPIA DE SEGURANÇA ================= */
-const BACKUP_COLS = ['config','users','patients','appointments','queue','invoices','especialidades','prontuarios','receitas','medicamentos','vendas','despesas',
+const BACKUP_COLS = ['contadores','config','users','patients','appointments','queue','invoices','especialidades','prontuarios','receitas','medicamentos','vendas','despesas',
   'funcionarios','alertas','emails','tratamentos','exames','tratamentosPrescritos','pedidosExame','empresas','seguradoras','camas','internamentos','cardex','administracoes','diarioEnfermagem','sinaisVitais','passagensTurno','referenciacoes','beneficiarios','recebimentos','contasInt','tratamentosInt','movimentosStock','planos','internadosAtivos','auditoria'];
 function baixarFicheiro(nome, texto, tipo){
   const a = document.createElement('a');
@@ -4821,7 +4866,7 @@ function htmlDocumentoCaixa(inv, via){
   const rodape = ent>0
     ? `<div class="doc-foot"><div class="doc-sign"><div class="line"></div>Assinatura do paciente / beneficiário</div><div class="doc-sign"><div class="line"></div>${esc(inv.emitidaPor||'')} (Caixa)</div></div>`
     : `<div class="doc-foot"><div class="doc-sign"><div class="line"></div>${esc(inv.emitidaPor||'')} (Caixa)</div></div>`;
-  return `<div class="doc"><div class="doc-via">${esc(via||'')}</div>${docHeader(isVD ? 'VD — Venda a Dinheiro' : 'Factura', inv.numero, (inv.emitidaEm||'').slice(0,10))}
+  return `<div class="doc"><div class="doc-via">${esc(via||'')}</div>${docHeader(isVD ? 'VD — Venda a Dinheiro' : 'Factura', inv.numero, diaLocal(inv.emitidaEm||''))}
     <div class="doc-section"><div class="lab">Paciente</div><div style="font-size:13.5px;"><b>${esc(inv.pacienteNome)}</b> · NID ${esc(inv.pacienteNid||'—')}</div></div>
     ${pagInfo}<div class="doc-section">${tab}${totais}</div>${selo}${rodape}</div>`;
 }
@@ -4853,7 +4898,7 @@ function documentosRows(list){
   if(!list.length) return `<tr><td colspan="9"><div class="empty">Sem documentos.</div></td></tr>`;
   return list.slice(0,300).map(i=>{
     const pg = i.pagador||{tipo:'individual'}, ve = Number(i.valorEntidade)||0;
-    return `<tr><td>${esc(i.numero)}</td><td class="cell-sub">${fmtDate((i.emitidaEm||i.pagoEm||'').slice(0,10)||i.data)}</td><td class="cell-name">${esc(i.pacienteNome||'—')}</td>
+    return `<tr><td>${esc(i.numero)}</td><td class="cell-sub">${fmtDate(diaLocal(i.emitidaEm||i.pagoEm||'')||i.data)}</td><td class="cell-name">${esc(i.pacienteNome||'—')}</td>
       <td><span class="tag ${i.tipoDoc==='Factura'?'amber':'green'}">${esc(i.tipoDoc||'—')}</span></td>
       <td>${pg.tipo==='individual'?'<span class="cell-sub">—</span>':esc(pg.entidadeNome)}</td><td><b>${fmtMZN(i.valor)}</b></td><td>${fmtMZN(valorPacienteDe(i))}</td>
       <td>${ve>0 ? `${fmtMZN(ve)} ${entTag(i)}` : '—'}</td>
@@ -4863,7 +4908,7 @@ function documentosRows(list){
 function filtrarDocumentos(){
   const q = (el('doc-q').value||'').toLowerCase(), tp = el('doc-tipo').value, en = el('doc-ent').value, de = el('doc-de').value, ate = el('doc-ate').value;
   const lista = documentosEmitidos().filter(i=>{
-    const dia = (i.emitidaEm||i.pagoEm||i.data||'').slice(0,10), pg = i.pagador||{};
+    const dia = diaLocal(i.emitidaEm||i.pagoEm||i.data||''), pg = i.pagador||{};
     if(tp && i.tipoDoc!==tp) return false;
     if(en && (Number(i.valorEntidade)>0 ? estadoEntidadeDe(i) : '')!==en) return false;
     if(de && dia<de) return false;
@@ -5788,7 +5833,7 @@ function renderOrdemDoc(tipo, o){
     ? `<tr><td>${esc(i.nome)}</td><td>${i.quantidade||1}</td><td>${fmtMZN(i.precoUnit)}</td><td style="text-align:right;">${fmtMZN(i.subtotal)}</td></tr>`
     : `<tr><td>${esc(i.nome)}</td><td>${fmtMZN(i.precoUnit)}</td><td>${esc(i.resultado)||'—'}</td></tr>`).join("");
   return `<div class="doc">
-    ${docHeader(isT?"Prescrição de Tratamento":"Pedido de Análises Laboratoriais", o.numero||'')}
+    ${docHeader(isT?(o.categoria==='Procedimento'?"Requisição de Procedimento":"Prescrição de Tratamento"):"Pedido de Análises Laboratoriais", o.numero||'')}
     <div class="doc-section"><div class="lab">Paciente</div><div class="doc-grid"><div><b>${esc(p.nome)}</b></div><div>NID ${esc(o.pacienteNid)}</div><div>${p.idade?p.idade+' anos':'—'} · ${esc(p.sexo||'—')}</div><div>Data: ${fmtDate(o.data)}</div></div></div>
     <div class="doc-section"><table class="doc-table"><thead><tr>${isT?'<th>Tratamento</th><th>Qtd</th><th>Preço</th><th style="text-align:right;">Subtotal</th>':'<th>Exame</th><th>Preço</th><th>Resultado</th>'}</tr></thead><tbody>${linhas}</tbody></table>
       <div style="font-size:12.5px;margin-top:8px;text-align:right;"><b>Total: ${fmtMZN(o.total)}</b></div></div>
