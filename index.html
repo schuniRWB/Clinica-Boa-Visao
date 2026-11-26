@@ -550,6 +550,30 @@ tbody tr:last-child td{border-bottom:none;}
   </div>
 </div>
 
+<div class="modal-bg" id="modal-directo">
+  <div class="modal">
+    <div class="modal-head"><h3>Procedimento directo — paciente referido</h3><button class="modal-close" onclick="closeModal('modal-directo')">✕</button></div>
+    <div class="modal-body">
+      <div class="muted-note" style="margin-bottom:12px;">Para pacientes que vêm de outra unidade só fazer um tratamento, procedimento ou exame. <b>Não é preciso marcar consulta</b>: depois de escolher os itens, o paciente segue para o Caixa, paga (numerário, carteira móvel e/ou POS) e só então o serviço é realizado.</div>
+      <div class="field"><label>Paciente</label><select id="dd-tipo" onchange="ddTipoMudou()"><option value="existente">Paciente já registado</option><option value="novo">Paciente novo</option></select></div>
+      <div id="dd-box-existente" class="field"><label>Escolha o paciente</label><select id="dd-paciente" onchange="ddAuto()"></select></div>
+      <div id="dd-box-novo" style="display:none;">
+        <div class="field-row"><div class="field"><label>Nome completo *</label><input id="dd-novo-nome" type="text"></div><div class="field"><label>Idade</label><input id="dd-novo-idade" type="number" min="0"></div></div>
+        <div class="field-row"><div class="field"><label>Sexo</label><select id="dd-novo-sexo"><option value="M">M</option><option value="F">F</option></select></div><div class="field"><label>Contacto</label><input id="dd-novo-contacto" type="text"></div></div>
+      </div>
+      <div id="dd-benef-info"></div>
+      <div class="field-row"><div class="field"><label>Unidade de proveniência *</label><input id="dd-unidade" type="text" placeholder="Ex.: Hospital Distrital de Mocuba"></div>
+        <div class="field"><label>Médico / profissional que referiu</label><input id="dd-profissional" type="text"></div></div>
+      <div class="field-row"><div class="field"><label>Nº da guia / referência</label><input id="dd-guia" type="text"></div>
+        <div class="field"><label>O que vem fazer?</label><select id="dd-servico"><option value="Procedimento">Procedimento</option><option value="Tratamento">Tratamento</option><option value="Exames">Exames</option></select></div></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeModal('modal-directo')">Cancelar</button>
+      <button class="btn solid" onclick="ddContinuar()">Escolher itens →</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-bg" id="modal-ordem">
   <div class="modal wide">
     <div class="modal-head"><h3 id="ordem-title">Prescrever tratamento</h3><button class="modal-close" onclick="closeModal('modal-ordem')">✕</button></div>
@@ -1422,6 +1446,7 @@ const MENU = [
   ]},
   {sec:"Clínico", items:[
     {id:"recepcao", label:"Recepção", icon:"🗂", roles:["admin","recepcao"]},
+    {id:"directos", label:"Procedimentos directos", icon:"💉", roles:["admin","recepcao","medico","enfermeiro"]},
     {id:"pacientes", label:"Pacientes", icon:"👤", roles:["admin","recepcao","medico","farmacia","financeiro","rh"]},
     {id:"agenda", label:"Agenda", icon:"📅", roles:["admin","recepcao","medico"]},
     {id:"fila", label:"Fila de espera", icon:"⏱", roles:["admin","recepcao","medico"]},
@@ -1943,6 +1968,7 @@ function render(){
   switch(currentView){
     case "dashboard": c.innerHTML = viewDashboard(); break;
     case "recepcao": c.innerHTML = viewRecepcao(); break;
+    case "directos": c.innerHTML = viewDirectos(); break;
     case "caixa": c.innerHTML = viewCaixa(); break;
     case "pacientes": c.innerHTML = viewPacientes(); break;
     case "agenda": c.innerHTML = viewAgenda(); break;
@@ -2027,7 +2053,7 @@ function viewRecepcao(){
   return `
   <div class="page-head">
     <div><h1>Recepção</h1><div class="desc">Marcação de consultas. A marcação não emite documento: a VD ou a factura é emitida no Caixa, ao confirmar o pagamento</div></div>
-    <div class="page-actions"><button class="btn solid" onclick="openNovaConsulta()">+ Nova consulta</button></div>
+    <div class="page-actions"><button class="btn" onclick="openDirecto()">+ Procedimento directo</button><button class="btn solid" onclick="openNovaConsulta()">+ Nova consulta</button></div>
   </div>
   ${unreadAlerts().length ? `<div class="alert-banner"><span>🔔 <b>${unreadAlerts().length}</b> alerta(s) de consultas reagendadas ou desmarcadas pelos médicos.</span><button class="btn sm" onclick="openAlertas()">Ver alertas</button></div>` : ''}
   ${referenciacoes.filter(r=>r.estado==='Pendente').length ? `<div class="card" style="margin-bottom:14px;"><h3>Encaminhamentos pendentes</h3><div class="csub">Pacientes encaminhados pelos médicos para outra especialidade — marque a consulta</div>
@@ -4444,18 +4470,18 @@ function ordemFiltroMudou(){
   const m = el('modal-ordem'); m.dataset.esp = el('ordem-todas').checked ? '' : (m.dataset.espCtx||'');
   el('ordem-items').innerHTML = ''; addOrdemRow();
 }
-function openOrdem(tipo, pacienteNid, apptId, intId, categoria){
-  if(!['admin','medico'].includes(currentUser.role) || !canSeePatient(pacienteNid)) return;
+function openOrdem(tipo, pacienteNid, apptId, intId, categoria, ext){
+  if(ext ? !['admin','recepcao'].includes(currentUser.role) : (!['admin','medico'].includes(currentUser.role) || !canSeePatient(pacienteNid))) return;
   const m = el('modal-ordem'), ap = apptId ? appointments.find(x=>x.id===apptId) : null, espCtx = ap && ap.especialidadeId ? ap.especialidadeId : '';
-  m.dataset.tipo = tipo; m.dataset.nid = pacienteNid; m.dataset.apptId = apptId||''; m.dataset.intId = intId||''; m.dataset.cat = categoria||''; m.dataset.espCtx = espCtx; m.dataset.esp = espCtx;
+  m.dataset.tipo = tipo; m.dataset.nid = pacienteNid; m.dataset.apptId = apptId||''; m.dataset.intId = intId||''; m.dataset.cat = categoria||''; m.dataset.espCtx = espCtx; m.dataset.esp = espCtx; m.dataset.ext = ext ? JSON.stringify(ext) : '';
   const cat = listaOrdem(tipo), isProc = categoria==='Procedimento';
   if(!cat.length && espCtx){ m.dataset.esp = ''; }
   if(!listaOrdem(tipo).length){ toast(tipo==='tratamento' ? `⚠️ O Administrador ainda não cadastrou ${isProc?'procedimentos':'tratamentos'} e preços.` : "⚠️ O Administrador ainda não cadastrou exames e preços."); return; }
-  const p = patientByNid(pacienteNid), isT = tipo==='tratamento', pg = ordemPagador(apptId, intId);
+  const p = patientByNid(pacienteNid) || (ext && ext.novo), isT = tipo==='tratamento', pg = ext ? (ext.pagador||{tipo:'individual'}) : ordemPagador(apptId, intId);
   const espObj = espCtx ? especialidadeById(espCtx) : null, todasBox = el('ordem-todas-box');
   todasBox.style.display = espObj ? '' : 'none'; el('ordem-todas').checked = !m.dataset.esp && !!espObj; el('ordem-todas-nome').textContent = espObj ? espObj.nome : '';
   el('ordem-title').textContent = isT ? (isProc ? 'Requisitar procedimento' : 'Prescrever tratamento') : 'Solicitar exames laboratoriais';
-  el('ordem-info').innerHTML = `Paciente: <b>${esc(p?p.nome:'')}</b> · NID ${esc(pacienteNid)}${pg.tipo!=='individual' ? ` · <span class="tag ${pg.tipo==='empresa'?'blue':'amber'}">${esc(pagLabel(pg))}</span> (preços contratuais)` : ''}`;
+  el('ordem-info').innerHTML = `Paciente: <b>${esc(p?p.nome:'')}</b> · ${pacienteNid ? 'NID '+esc(pacienteNid) : 'paciente novo'}${ext ? ` · <span class="tag grey">Referido de ${esc(ext.unidade)}</span>` : ''}${pg.tipo!=='individual' ? ` · <span class="tag ${pg.tipo==='empresa'?'blue':'amber'}">${esc(pagLabel(pg))}</span> (preços contratuais)` : ''}`;
   el('ordem-notas-label').textContent = isT ? (isProc ? 'Indicação / notas do procedimento' : 'Instruções / notas do tratamento') : 'Indicação clínica';
   el('ordem-notas').value = '';
   el('ordem-aviso').textContent = isT
@@ -4467,7 +4493,7 @@ function openOrdem(tipo, pacienteNid, apptId, intId, categoria){
   openModal('modal-ordem');
 }
 function addOrdemRow(){
-  const m = el('modal-ordem'), tipo = m.dataset.tipo, cat = listaOrdem(tipo), ent = entidadeDoPagador(ordemPagador(m.dataset.apptId, m.dataset.intId));
+  const m = el('modal-ordem'), tipo = m.dataset.tipo, cat = listaOrdem(tipo), ent = entidadeDoPagador(ordemPagadorModal(m));
   const row = document.createElement('div');
   row.className = 'ord-row' + (tipo==='exame' ? ' sem-qtd' : '');
   row.innerHTML = `<select onchange="ordRecalc()">${cat.map(c=>{ const pr = precoContratual(ent, tipo, c.id, c.preco); return `<option value="${c.id}" data-preco="${pr}">${esc(c.nome)} — ${fmtMZN(pr)}</option>`; }).join("")}</select>
@@ -4488,22 +4514,28 @@ function ordRecalc(){
   el('ordem-total').textContent = 'Total: ' + fmtMZN(total);
 }
 async function confirmOrdem(){
-  const m = el('modal-ordem'), tipo = m.dataset.tipo, nid = m.dataset.nid, isT = tipo==='tratamento';
-  if(!canSeePatient(nid)) return;
-  const pg = ordemPagador(m.dataset.apptId, m.dataset.intId), ent = entidadeDoPagador(pg), cat = listaOrdem(tipo), itens = [], isProc = m.dataset.cat==='Procedimento';
+  const m = el('modal-ordem'), tipo = m.dataset.tipo, isT = tipo==='tratamento', ext = m.dataset.ext ? JSON.parse(m.dataset.ext) : null;
+  let nid = m.dataset.nid;
+  if(ext){ if(!['admin','recepcao'].includes(currentUser.role)) return; } else if(!canSeePatient(nid)) return;
+  const pg = ordemPagadorModal(m), ent = entidadeDoPagador(pg), cat = listaOrdem(tipo), itens = [], isProc = m.dataset.cat==='Procedimento';
   document.querySelectorAll('#ordem-items .ord-row').forEach(row=>{
     const c = cat.find(x=>x.id===row.querySelector('select').value), qi = row.querySelector('input');
     const q = qi ? Math.floor(Number(qi.value)||0) : 1;
     if(c && q>0){ const pu = precoContratual(ent, tipo, c.id, c.preco); itens.push({catId:c.id, nome:c.nome, precoRef:r2(c.preco), precoUnit:pu, quantidade:q, subtotal:r2(pu*q)}); }
   });
   if(!itens.length){ toast(isT ? (isProc ? "⚠️ Adicione pelo menos um procedimento." : "⚠️ Adicione pelo menos um tratamento.") : "⚠️ Adicione pelo menos um exame."); return; }
+  if(ext && ext.novo && !nid){   // paciente novo referido: regista-o agora que o pedido está confirmado
+    nid = String(nextNid());
+    await Store.setDoc('patients', nid, {nid, nome:ext.novo.nome, idade:ext.novo.idade, sexo:ext.novo.sexo, contacto:ext.novo.contacto, morada:'', sangue:'—', alergias:'—', obs:'Paciente referido de '+ext.unidade+'.', registadoPor:currentUser.nome});
+  }
   const total = r2(itens.reduce((t,i)=>t+i.subtotal, 0)), ref = r2(itens.reduce((t,i)=>t+i.precoRef*i.quantidade, 0));
   let usado = 0;
   itens.forEach(it=>{ const cv = dividirCobertura(it.subtotal, pg, tipo, it.catId, nid, null, usado); it.valorEntidade = cv.valorEntidade; it.valorPaciente = cv.valorPaciente; if(cv.naoCoberto) it.naoCoberto = cv.motivoNaoCoberto; usado += cv.valorEntidade; });
   const div = {valorEntidade:r2(itens.reduce((t,i)=>t+i.valorEntidade,0))}; div.valorPaciente = r2(total-div.valorEntidade);
-  const p = patientByNid(nid), numero = await docSeq(isT ? 'TR' : 'EX');
+  const p = patientByNid(nid) || (ext && ext.novo ? {nome:ext.novo.nome} : null), numero = await docSeq(isT ? 'TR' : 'EX');
   const ordem = {
-    numero, pacienteNid: nid, pacienteNome: p?p.nome:'', medicoId: currentUser.id, medicoNome: currentUser.nome,
+    numero, pacienteNid: nid, pacienteNome: p?p.nome:(ext&&ext.novo?ext.novo.nome:''), medicoId: ext ? '' : currentUser.id, medicoNome: ext ? (ext.profissional || 'Referência externa') : currentUser.nome,
+    origemExterna: ext ? {unidade:ext.unidade, profissional:ext.profissional||'', guia:ext.guia||''} : null, registadoPor: currentUser.nome,
     apptId: m.dataset.apptId||'', data: todayStr(), itens, total, pagador: pg, notas: el('ordem-notas').value.trim(),
     estado: 'Aguarda pagamento', criadoEm: new Date().toISOString(), categoria: isT ? (isProc ? 'Procedimento' : 'Tratamento') : 'Exame',
     especialidadeId: m.dataset.espCtx||'', especialidadeNome: m.dataset.espCtx ? ((especialidadeById(m.dataset.espCtx)||{}).nome||'') : ''
@@ -4520,7 +4552,7 @@ async function confirmOrdem(){
     return;
   }
   const ordemId = await Store.addDoc(ordemCol(tipo), ordem);
-  const servico = (isT ? (isProc ? 'Procedimento: ' : 'Tratamento: ') : 'Exames: ') + itens.map(i=>i.nome + (i.quantidade>1 ? ' ×'+i.quantidade : '')).join(', ');
+  const servico = (isT ? (isProc ? 'Procedimento: ' : 'Tratamento: ') : 'Exames: ') + itens.map(i=>i.nome + (i.quantidade>1 ? ' ×'+i.quantidade : '')).join(', ') + (ext ? ' — referido de '+ext.unidade : '');
   const invId = await Store.addDoc('invoices', {
     numero:'', pacienteNid: nid, pacienteNome: p?p.nome:'', tipo: isT?'Tratamento':'Exame', categoria: isT ? (isProc ? 'Procedimento' : 'Tratamento') : 'Exame', servico,
     itens: itens.map(i=>({nome:i.nome, quantidade:i.quantidade, precoUnit:i.precoUnit, subtotal:i.subtotal})),
@@ -4528,14 +4560,84 @@ async function confirmOrdem(){
     metodo:'', estado:'Pendente', data: todayStr(), ordemTipo: tipo, ordemId   // sem apptId: não mexe na consulta
   });
   await Store.setDoc(ordemCol(tipo), ordemId, {invoiceId: invId});
+  if(ext) audit('procedimento_directo', 'Procedimento directo', numero, `${p?p.nome:''} · referido de ${ext.unidade} · ${fmtMZN(total)}`);
   closeModal('modal-ordem');
-  toast(`✅ ${isT?(isProc?'Procedimento requisitado':'Tratamento prescrito'):'Exames solicitados'}. O paciente segue para o Caixa, onde é emitido o documento.`, 5000);
+  toast(`✅ ${isT?(isProc?'Procedimento registado':'Tratamento registado'):'Exames registados'}. O paciente segue para o Caixa, onde é emitido o documento.`, 5000);
   printDoc(renderOrdemDoc(tipo, {...ordem, id: ordemId}));
 }
-function podeGerirOrdem(o){ return ['admin','medico'].includes(currentUser.role) && canSeePatient(o.pacienteNid); }
+
+/* ================= PROCEDIMENTO DIRECTO: paciente referido de outra unidade (sem consulta) ================= */
+function ordemPagadorModal(m){ if(m.dataset.ext){ const e = JSON.parse(m.dataset.ext); return e.pagador || {tipo:'individual'}; } return ordemPagador(m.dataset.apptId, m.dataset.intId); }
+function openDirecto(){
+  if(!['admin','recepcao'].includes(currentUser.role)) return;
+  el('dd-paciente').innerHTML = patients.map(p=>`<option value="${p.id}">${esc(p.nome)} — NID ${p.id}</option>`).join('');
+  ['dd-novo-nome','dd-novo-idade','dd-novo-contacto','dd-unidade','dd-profissional','dd-guia'].forEach(id=>el(id).value='');
+  el('dd-tipo').value = 'existente'; ddTipoMudou();
+  openModal('modal-directo');
+}
+function ddTipoMudou(){
+  const novo = el('dd-tipo').value==='novo';
+  el('dd-box-existente').style.display = novo ? 'none' : ''; el('dd-box-novo').style.display = novo ? '' : 'none';
+  ddAuto();
+}
+function ddPagador(){
+  if(el('dd-tipo').value==='novo') return {pagador:{tipo:'individual'}, info:''};
+  const b = beneficiarioAtivoDe(el('dd-paciente').value);
+  if(!b) return {pagador:{tipo:'individual'}, info:''};
+  const ent = (b.entidadeTipo==='empresa' ? empresas : seguradoras).find(x=>x.id===b.entidadeId), ac = acordoValido(ent);
+  if(!ent || !ac.ok) return {pagador:{tipo:'individual'}, info:`<div class="muted-note">Beneficiário de <b>${esc(b.entidadeNome)}</b>, mas ${esc((ac.motivo||'').toLowerCase())}. Tratado como paciente comum.</div>`};
+  let pagador;
+  if(b.entidadeTipo==='empresa') pagador = {tipo:'empresa', entidadeId:ent.id, entidadeNome:ent.nome, nuit:ent.nuit||'', beneficiarioId:b.id, comparticipacao:(ent.comparticipacao===undefined||ent.comparticipacao===null||ent.comparticipacao==='') ? 100 : Number(ent.comparticipacao), referencia:''};
+  else { const pl = (ent.planos||[]).find(x=>x.nome===b.plano) || (ent.planos||[])[0]; pagador = {tipo:'seguradora', entidadeId:ent.id, entidadeNome:ent.nome, nuit:ent.nuit||'', planoNome:pl?pl.nome:(b.plano||''), beneficiarioId:b.id, comparticipacao:pl?Number(pl.comparticipacao)||0:0, cartao:b.cartao||'', autorizacao:''}; }
+  return {pagador, info:`<div class="muted-note" style="border-color:var(--ok-tint);background:var(--ok-tint);color:var(--ok);">✔ Beneficiário de <b>${esc(b.entidadeNome)}</b>${b.plano?' · '+esc(b.plano):''}: os serviços cobertos são facturados à entidade.</div>`};
+}
+function ddAuto(){ el('dd-benef-info').innerHTML = ddPagador().info; }
+function ddContinuar(){
+  const unidade = el('dd-unidade').value.trim(), novo = el('dd-tipo').value==='novo';
+  if(!unidade){ toast("⚠️ Indique a unidade de proveniência."); return; }
+  const ext = {unidade, profissional:el('dd-profissional').value.trim(), guia:el('dd-guia').value.trim(), pagador:ddPagador().pagador};
+  let nid = '';
+  if(novo){
+    const nome = el('dd-novo-nome').value.trim();
+    if(!nome){ toast("⚠️ Indique o nome do paciente."); return; }
+    ext.novo = {nome, idade:Number(el('dd-novo-idade').value)||null, sexo:el('dd-novo-sexo').value, contacto:el('dd-novo-contacto').value.trim()};
+  } else { nid = el('dd-paciente').value; if(!nid){ toast("⚠️ Escolha o paciente."); return; } }
+  const sv = el('dd-servico').value;
+  closeModal('modal-directo');
+  openOrdem(sv==='Exames' ? 'exame' : 'tratamento', nid, '', '', sv==='Exames' ? '' : sv, ext);
+}
+function viewDirectos(){
+  const todas = [...tratamentosPrescritos.map(o=>({o, tipo:'tratamento'})), ...pedidosExame.map(o=>({o, tipo:'exame'}))].filter(x=>x.o.origemExterna).sort((a,b)=>(b.o.criadoEm||'').localeCompare(a.o.criadoEm||''));
+  const aFazer = todas.filter(x=>['Pago','Em curso'].includes(x.o.estado)).length, aPagar = todas.filter(x=>x.o.estado==='Aguarda pagamento').length;
+  const acoes = ({o,tipo})=>{
+    const b = [];
+    if(o.estado==='Aguarda pagamento'){ b.push(`<span class="cell-sub">⏳ Aguarda pagamento no Caixa</span>`); if(['admin','recepcao'].includes(currentUser.role)) b.push(`<button class="btn sm danger" onclick="cancelarOrdem('${tipo}','${o.id}')">Cancelar</button>`); }
+    else if(podeGerirOrdem(o)){
+      if(tipo==='tratamento' && o.estado==='Pago') b.push(`<button class="btn sm solid" onclick="iniciarTratamento('${o.id}')">▶ Iniciar</button>`);
+      if(tipo==='tratamento' && o.estado==='Em curso') b.push(`<button class="btn sm solid" onclick="concluirTratamento('${o.id}')">✔ Concluir</button>`);
+      if(tipo==='exame' && ['Pago','Concluído'].includes(o.estado)) b.push(`<button class="btn sm solid" onclick="openResultados('${o.id}')">Resultados</button>`);
+    }
+    b.push(`<button class="btn sm ghost" onclick="reimprimirOrdem('${tipo}','${o.id}')">Imprimir</button>`);
+    return b.join(' ');
+  };
+  return `
+  <div class="page-head">
+    <div><h1>Procedimentos directos</h1><div class="desc">Pacientes referidos de outras unidades, sem consulta: pagam no Caixa e só depois o serviço é realizado</div></div>
+    ${['admin','recepcao'].includes(currentUser.role) ? `<div class="page-actions"><button class="btn solid" onclick="openDirecto()">+ Procedimento directo</button></div>` : ''}
+  </div>
+  <div class="stat-grid" style="margin-bottom:14px;"><div class="stat"><div class="lab">A realizar</div><div class="val">${aFazer}</div></div><div class="stat"><div class="lab">Aguardam pagamento</div><div class="val">${aPagar}</div></div><div class="stat"><div class="lab">Total registados</div><div class="val">${todas.length}</div></div></div>
+  <div class="card"><div class="table-wrap"><table>
+    <thead><tr><th>Data</th><th>Paciente</th><th>Origem</th><th>Serviço</th><th>Total</th><th>Estado</th><th></th></tr></thead>
+    <tbody>${todas.map(x=>{ const o = x.o, og = o.origemExterna; return `<tr><td class="cell-sub">${fmtDate(o.data)}</td><td class="cell-name">${esc(o.pacienteNome)}<div class="cell-sub">NID ${esc(o.pacienteNid)}${o.pagador&&o.pagador.tipo!=='individual'?' · '+esc(pagLabel(o.pagador)):''}</div></td>
+      <td>${esc(og.unidade)}<div class="cell-sub">${esc(og.profissional||'')}${og.guia?' · guia '+esc(og.guia):''}</div></td>
+      <td>${o.categoria==='Procedimento'?'<span class="tag blue">Procedimento</span> ':''}${o.itens.map(i=>esc(i.nome)+(i.quantidade>1?' ×'+i.quantidade:'')).join(', ')}</td>
+      <td><b>${fmtMZN(o.total)}</b></td><td>${statusTag(o.estado)}</td><td style="white-space:nowrap;">${acoes(x)}</td></tr>`; }).join('') || `<tr><td colspan="7"><div class="empty">Ainda não há procedimentos directos.</div></td></tr>`}</tbody>
+  </table></div></div>`;
+}
+function podeGerirOrdem(o){ if(o.origemExterna) return ['admin','medico','enfermeiro'].includes(currentUser.role); return ['admin','medico'].includes(currentUser.role) && canSeePatient(o.pacienteNid); }
 async function cancelarOrdem(tipo, id){
   const o = ordemLista(tipo).find(x=>x.id===id);
-  if(!o || !(currentUser.role==='admin' || o.medicoId===currentUser.id)) return;
+  if(!o || !(currentUser.role==='admin' || (o.medicoId && o.medicoId===currentUser.id) || (o.origemExterna && currentUser.role==='recepcao'))) return;
   if(o.estado!=='Aguarda pagamento'){ toast("⚠️ Só é possível cancelar enquanto o pagamento não foi feito."); return; }
   if(!confirm("Cancelar esta prescrição? A factura pendente será anulada.")) return;
   await Store.setDoc(ordemCol(tipo), id, {estado:'Cancelado'});
@@ -4579,7 +4681,7 @@ async function saveResultados(){
 }
 function reimprimirOrdem(tipo, id){
   const o = ordemLista(tipo).find(x=>x.id===id);
-  if(o && canSeePatient(o.pacienteNid)) printDoc(renderOrdemDoc(tipo, o));
+  if(o && (o.origemExterna || canSeePatient(o.pacienteNid))) printDoc(renderOrdemDoc(tipo, o));
 }
 function cardOrdens(nid){
   const desc = (a,b)=>(b.criadoEm||'').localeCompare(a.criadoEm||'');
@@ -4794,7 +4896,7 @@ function startAuditListener(){
 function stopAuditListener(){ if(auditUnsub){ try{ auditUnsub(); }catch(e){} auditUnsub = null; } auditoria = []; }
 const ACAO_LABEL = {criar:'Criou', editar:'Editou', apagar:'Apagou', login:'Entrou', logout:'Saiu', login_falhado:'Tentativa de login falhada', login_bloqueado:'Login bloqueado',
   password_alterada:'Alterou a password', password_redefinida:'Redefiniu password', password_inicial:'Definiu password inicial', pagamento_confirmado:'Confirmou pagamento',
-  baixa_stock:'Baixa de stock', pacientes_importados:'Importou pacientes', importacao_excel:'Importou ficheiro Excel', backup_exportado:'Exportou cópia de segurança', backup_restaurado:'Restaurou cópia de segurança',
+  baixa_stock:'Baixa de stock', pacientes_importados:'Importou pacientes', importacao_excel:'Importou ficheiro Excel', procedimento_directo:'Registou procedimento directo', backup_exportado:'Exportou cópia de segurança', backup_restaurado:'Restaurou cópia de segurança',
   alta_internamento:'Alta médica de internamento', conta_facturada:'Facturou conta de internamento', movimento_stock:'Movimento de stock', sistema_reiniciado:'Reiniciou o sistema', configuracao_inicial:'Configuração inicial', documento_emitido:'Emitiu documento (VD / factura)', segunda_via:'Imprimiu 2.ª via',
   recebimento_entidade:'Registou recebimento de entidade', precos_entidade:'Gravou preços contratuais', despesa_editada:'Editou despesa', despesa_anulada:'Anulou despesa',
   despesa_paga:'Pagou despesa', pagamento_inss:'Pagou o INSS', parametros_fiscais:'Alterou parâmetros fiscais'};
@@ -5866,6 +5968,7 @@ function renderOrdemDoc(tipo, o){
     <div class="doc-section"><div class="lab">Paciente</div><div class="doc-grid"><div><b>${esc(p.nome)}</b></div><div>NID ${esc(o.pacienteNid)}</div><div>${p.idade?p.idade+' anos':'—'} · ${esc(p.sexo||'—')}</div><div>Data: ${fmtDate(o.data)}</div></div></div>
     <div class="doc-section"><table class="doc-table"><thead><tr>${isT?'<th>Tratamento</th><th>Qtd</th><th>Preço</th><th style="text-align:right;">Subtotal</th>':'<th>Exame</th><th>Preço</th><th>Resultado</th>'}</tr></thead><tbody>${linhas}</tbody></table>
       <div style="font-size:12.5px;margin-top:8px;text-align:right;"><b>Total: ${fmtMZN(o.total)}</b></div></div>
+    ${o.origemExterna ? `<div class="doc-section"><div class="lab">Referência externa</div><div style="font-size:12.5px;">Unidade: <b>${esc(o.origemExterna.unidade)}</b>${o.origemExterna.profissional?' · Profissional: '+esc(o.origemExterna.profissional):''}${o.origemExterna.guia?' · Guia n.º '+esc(o.origemExterna.guia):''}</div></div>` : ''}
     ${o.notas ? `<div class="doc-section"><div class="lab">${isT?'Instruções':'Indicação clínica'}</div><div style="font-size:12.5px;">${esc(o.notas)}</div></div>` : ''}
     <div class="doc-stamp ${pago?'paid':'pending'}">${o.estado==='Cancelado' ? 'CANCELADO' : (pago ? 'PAGO — pode iniciar' : 'AGUARDA PAGAMENTO — a liquidar no Caixa')}</div>
     ${docFooter(o.medicoNome)}
