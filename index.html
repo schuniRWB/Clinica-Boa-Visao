@@ -1690,6 +1690,7 @@ const MENU = [
     {id:"precario", label:"Preçário e composição", icon:"📑", roles:["recepcao"]},
     {id:"pacientes", label:"Pacientes", icon:"👤", roles:["admin","recepcao","medico","farmacia","financeiro","rh"]},
     {id:"agenda", label:"Agenda", icon:"📅", roles:["admin","recepcao","medico"]},
+    {id:"minhasrx", label:"Minhas receitas", icon:"📋", roles:["medico"]},
     {id:"fila", label:"Fila de espera", icon:"⏱", roles:["admin","recepcao","medico"]},
     {id:"prontuario", label:"Prontuário", icon:"🩺", roles:["admin","medico"]},
     {id:"laboratorio", label:"Laboratório", icon:"🔬", roles:["admin","laboratorio"]},
@@ -1879,7 +1880,7 @@ function bootApp(){
   Store.listen('queue', arr=>{ queue = arr; if(currentUser) render(); });
   Store.listen('invoices', arr=>{ invoices = arr; if(currentUser) render(); });
   Store.listen('prontuarios', arr=>{ prontuarios = arr; if(currentUser) render(); });
-  Store.listen('receitas', arr=>{ receitas = arr; if(currentUser) render(); });
+  Store.listen('receitas', arr=>{ receitas = arr; if(currentUser){ render(); rxAvisarMedico(); } });
   Store.listen('medicamentos', arr=>{ medicamentos = arr.sort((a,b)=>(a.nome||'').localeCompare(b.nome||'')); if(currentUser) render(); });
   Store.listen('vendas', arr=>{ vendas = arr; if(currentUser) render(); });
   Store.listen('despesas', arr=>{ despesas = arr; if(currentUser) render(); });
@@ -2271,6 +2272,7 @@ function render(){
     case "prontuario": c.innerHTML = viewProntuario(); break;
     case "farmacia": c.innerHTML = viewFarmacia(); break;
     case "receitas": c.innerHTML = viewReceitasPendentes(); break;
+    case "minhasrx": c.innerHTML = viewMinhasReceitas(); break;
     case "financeiro": c.innerHTML = viewFinanceiro(); break;
     case "rh": c.innerHTML = viewRH(); break;
     case "utilizadores": c.innerHTML = viewUtilizadores(); break;
@@ -2290,7 +2292,7 @@ function render(){
 }
 function stubPage(title, desc){ return `<div class="card phase-stub"><div class="ic">🚧</div><h3>${title}</h3><p>${desc}</p></div>`; }
 function statusTag(estado){
-  const map = {"Aguarda pagamento":"amber","Confirmada":"blue","Agendada":"grey","Em espera":"amber","Em atendimento":"amber","Finalizada":"green","Cancelada":"red","Não compareceu":"red","Pendente":"amber","Pago":"green","Dispensada":"green","Anulada":"grey","Em curso":"blue","Concluído":"green","Cancelado":"red","A crédito":"blue","Prescrito":"blue","Em execução":"blue","Realizado":"green","Suspenso":"red","Lançado":"amber","Faturado":"green","Internado":"amber","Alta":"green","Livre":"green","Ocupada":"red","Limpeza":"amber","Activa":"green","Suspensa":"red","Concluída":"grey"};
+  const map = {"Aguarda pagamento":"amber","Confirmada":"blue","Agendada":"grey","Em espera":"amber","Em atendimento":"amber","Finalizada":"green","Cancelada":"red","Não compareceu":"red","Pendente":"amber","Pago":"green","Dispensada":"green","Rejeitada":"red","Anulada":"grey","Em curso":"blue","Concluído":"green","Cancelado":"red","A crédito":"blue","Prescrito":"blue","Em execução":"blue","Realizado":"green","Suspenso":"red","Lançado":"amber","Faturado":"green","Internado":"amber","Alta":"green","Livre":"green","Ocupada":"red","Limpeza":"amber","Activa":"green","Suspensa":"red","Concluída":"grey"};
   return `<span class="tag ${map[estado]||'grey'}">${estado}</span>`;
 }
 
@@ -3177,6 +3179,7 @@ function medPodeAlterar(a){
 }
 function viewAgenda(){
   const hoje = todayStr();
+  const _rxB = currentUser.role==='medico' && rxRejeitadasNovas().length ? `<div class="card" style="border-color:#c33;background:#fff4f4;margin-bottom:12px;padding:10px 14px;">⚠️ <b>${rxRejeitadasNovas().length} receita(s) rejeitada(s) pela farmácia.</b> <a href="#" onclick="go('minhasrx');return false;">Ver motivo e imprimir</a></div>` : '';
   if(!agendaDate) agendaDate = hoje;
   const isMed = currentUser.role==='medico';
   const canManage = ehRecepcao();
@@ -3188,6 +3191,7 @@ function viewAgenda(){
   const showAct = canManage || isMed;
   const cols = 7 + (showAct?1:0);
   return `
+  ${_rxB}
   <div class="page-head">
     <div><h1>Agenda</h1><div class="desc">${isMed?'As suas consultas — pode iniciar o atendimento, reagendar ou desmarcar; a recepção é avisada de qualquer alteração':'Consultas marcadas, por dia ou todas as próximas'}</div></div>
     ${canManage ? `<div class="page-actions"><button class="btn solid" onclick="openNovaConsulta()">+ Agendar consulta</button></div>` : ''}
@@ -3638,7 +3642,8 @@ function addRxItem(){
 async function issueRx(){
   const itens = [...document.querySelectorAll('.rx-item')].map(row=>{
     const inp = row.querySelectorAll('input'); const sel = row.querySelector('select');
-    return {medicamento:inp[0].value, dose:inp[1].value, freq:sel.value, duracao:inp[2].value};
+    const nome = inp[0].value.trim(), pm = medicamentos.filter(m=>dispNorm(m.nome)===dispNorm(nome));
+    return {medicamento:inp[0].value, dose:inp[1].value, freq:sel.value, duracao:inp[2].value, ...(pm.length===1 ? {produtoId:pm[0].id} : {})};
   }).filter(i=>i.medicamento);
   if(!itens.length){ toast("⚠️ Adicione pelo menos um medicamento."); return; }
   const p = patientByNid(window._rxPatient);
@@ -3660,6 +3665,7 @@ function renderRxDoc(r){
       <table class="doc-table"><thead><tr><th>Medicamento</th><th>Dosagem</th><th>Frequência</th><th>Duração</th></tr></thead>
       <tbody>${r.itens.map(i=>`<tr><td>${esc(i.medicamento)}</td><td>${esc(i.dose)||'—'}</td><td>${i.freq}</td><td>${esc(i.duracao)||'—'}</td></tr>`).join("")}</tbody></table>
     </div>
+    ${r.estado==='Rejeitada'?`<div class="doc-section" style="border:1px solid #999;padding:8px;font-size:12px;"><b>Nota:</b> receita não dispensada na farmácia da clínica — ${esc(r.motivoRejeicao||'')}. Pode ser aviada noutra farmácia.</div>`:''}
     ${r.instrucoes?`<div class="doc-section"><div class="lab">Instruções</div><div style="font-size:12.5px;">${esc(r.instrucoes)}</div></div>`:''}
     ${docFooter(r.medicoNome)}
   </div>`;
@@ -4178,15 +4184,53 @@ function renderVendaDoc(v){
 /* ---- Receitas pendentes (dispensa) ---- */
 function viewReceitasPendentes(){
   const pendentes = receitas.filter(r=>r.estado==='Pendente').sort((a,b)=>(a.data||'').localeCompare(b.data||''));
+  const rej = receitas.filter(r=>r.estado==='Rejeitada').sort((a,b)=>(b.rejeitadaEm||'').localeCompare(a.rejeitadaEm||'')).slice(0,15);
   return `
   <div class="page-head"><div><h1>Receitas pendentes</h1><div class="desc">Prescrições enviadas pelos médicos, por dispensar</div></div></div>
   <div class="card">
     <div class="table-wrap"><table>
       <thead><tr><th>Nº</th><th>Paciente</th><th>Médico</th><th>Data</th><th>Itens</th><th></th></tr></thead>
       <tbody>${pendentes.map(r=>`<tr><td>${r.numero}</td><td class="cell-name">${esc(r.pacienteNome)}</td><td>${r.medicoNome}</td><td>${fmtDate(r.data)}</td><td>${r.itens.length}</td>
-        <td><button class="btn sm solid" onclick="openDispensarModal('${r.id}')">Dispensar</button></td></tr>`).join("") || `<tr><td colspan="6"><div class="empty">Sem receitas pendentes.</div></td></tr>`}</tbody>
+        <td style="white-space:nowrap;"><button class="btn sm solid" onclick="openDispensarModal('${r.id}')">Dispensar</button> <button class="btn sm danger" onclick="rxRejeitar('${r.id}')">Rejeitar</button></td></tr>`).join("") || `<tr><td colspan="6"><div class="empty">Sem receitas pendentes.</div></td></tr>`}</tbody>
     </table></div>
-  </div>`;
+  </div>
+  ${rej.length?`<div class="card" style="margin-top:14px;"><h3>Rejeitadas (últimos registos)</h3><div class="table-wrap"><table><thead><tr><th>Nº</th><th>Paciente</th><th>Médico</th><th>Rejeitada em</th><th>Motivo</th></tr></thead><tbody>
+    ${rej.map(r=>`<tr><td>${r.numero}</td><td class="cell-name">${esc(r.pacienteNome)}</td><td>${esc(r.medicoNome||'')}</td><td class="cell-sub">${fmtDate(r.rejeitadaEm)}</td><td>${esc(r.motivoRejeicao||'')}</td></tr>`).join('')}</tbody></table></div></div>`:''}`;
+}
+/* ---- rejeição de receita pela farmácia (ex.: produto sem stock) ---- */
+function rxRejeitar(id){
+  const r = receitas.find(x=>x.id===id); if(!r || r.estado!=='Pendente' || !['admin','farmacia'].includes(currentUser.role)) return;
+  closeModal('modal-dispensar');
+  gmodal('Rejeitar receita '+r.numero, [
+    {id:'tipo', label:'Motivo', type:'select', opts:['Produto sem stock','Produto indisponível / descontinuado','Dose ou posologia a esclarecer','Outro']},
+    {id:'det', label:'Detalhe para o médico (qual produto, o que fazer)', type:'textarea', rows:3}],
+    'Rejeitar e avisar o médico', async v=>{
+      if(!v.det.trim()){ toast('⚠️ Escreva o detalhe do motivo (ex.: "Amoxicilina 500 mg sem stock").'); return false; }
+      try{ await Store.claim('receitas', id, 'estado', 'Pendente', 'Rejeitada'); }catch(e){ toast('⚠️ Esta receita já foi tratada.'); return false; }
+      const motivo = v.tipo+': '+v.det.trim();
+      await Store.setDoc('receitas', id, {motivoRejeicao:motivo, rejeitadaPor:currentUser.nome, rejeitadaEm:new Date().toISOString(), rejeicaoVista:false});
+      audit('receita_rejeitada', 'Receita', r.numero, motivo.slice(0,120));
+      toast('Receita rejeitada. O médico foi avisado.');
+    });
+}
+/* ---- Médico: as suas receitas (incluindo rejeitadas) ---- */
+function rxMinhas(){ return receitas.filter(r=>r.medicoId===currentUser.id); }
+function rxRejeitadasNovas(){ return rxMinhas().filter(r=>r.estado==='Rejeitada' && !r.rejeicaoVista); }
+function viewMinhasReceitas(){
+  const l = rxMinhas().sort((a,b)=>(b.data||'').localeCompare(a.data||'') || (b.numero||'').localeCompare(a.numero||''));
+  return `<div class="page-head"><div><h1>Minhas receitas</h1><div class="desc">Estado de cada receita enviada à farmácia. As rejeitadas mostram o motivo e podem ser impressas.</div></div></div>
+  <div class="card"><div class="table-wrap"><table><thead><tr><th>Nº</th><th>Paciente</th><th>Data</th><th>Medicamentos</th><th>Estado</th><th></th></tr></thead><tbody>
+  ${l.map(r=>`<tr ${r.estado==='Rejeitada'&&!r.rejeicaoVista?'style="background:#fff4f4;"':''}><td>${r.numero}</td><td class="cell-name">${esc(r.pacienteNome)}</td><td class="cell-sub">${fmtDate(r.data)}</td><td class="cell-sub">${r.itens.map(i=>esc(i.medicamento)).join(', ')}</td>
+    <td>${statusTag(r.estado)}${r.estado==='Rejeitada'?`<div class="cell-sub" style="color:#b00;max-width:280px;">${esc(r.motivoRejeicao||'')}<br>por ${esc(r.rejeitadaPor||'')} · ${fmtDate(r.rejeitadaEm)}</div>`:''}</td>
+    <td style="white-space:nowrap;"><button class="btn sm" onclick="rxImprimirMedico('${r.id}')">🖶 Imprimir</button>${r.estado==='Rejeitada'&&!r.rejeicaoVista?` <button class="btn sm ghost" onclick="rxVista('${r.id}')">Marcar como vista</button>`:''}</td></tr>`).join('') || `<tr><td colspan="6"><div class="empty">Ainda não emitiu receitas.</div></td></tr>`}</tbody></table></div></div>`;
+}
+function rxImprimirMedico(id){ const r = receitas.find(x=>x.id===id); if(r && (r.medicoId===currentUser.id || currentUser.role==='admin')) printDoc(renderRxDoc(r)); }
+async function rxVista(id){ const r = receitas.find(x=>x.id===id); if(r && r.medicoId===currentUser.id) await Store.setDoc('receitas', id, {rejeicaoVista:true}); }
+let _rxAvisados = new Set();
+function rxAvisarMedico(){
+  if(!currentUser || currentUser.role!=='medico') return;
+  const n = rxRejeitadasNovas().filter(r=>!_rxAvisados.has(r.id));
+  if(n.length){ n.forEach(r=>_rxAvisados.add(r.id)); toast(`⚠️ Receita ${n[0].numero} rejeitada pela farmácia: ${esc(n[0].motivoRejeicao||'')}${n.length>1?` (+${n.length-1})`:''}`, 9000); }
 }
 /* ---- dispensa de receita (com cobertura da entidade, quantidades e validade) ---- */
 function pagadorDeBenef(b, ent){
@@ -4205,17 +4249,27 @@ function openDispensarModal(rxId){
   el('dispensar-body').innerHTML = `
     <div class="doc-grid" style="font-size:13px;margin-bottom:14px;"><div><b>Paciente:</b> ${esc(r.pacienteNome)}</div><div><b>Médico:</b> ${esc(r.medicoNome||'')}</div></div>
     <div class="muted-note" style="margin-bottom:12px;">Tipo de paciente: <b>${esc(pagLabel(pg))}</b>${pg.tipo!=='individual'?' — o que estiver coberto pelo plano é facturado à entidade':''}</div>
-    ${r.itens.map((it,idx)=>`
-      <div class="sale-row">
-        <select id="disp-prod-${idx}" onchange="dispRecalc()">${venda.map(m=>`<option value="${m.id}" ${m.nome.toLowerCase().includes((it.medicamento||'').toLowerCase().split(' ')[0])?'selected':''}>${esc(m.nome)} (stock ${m.stock})</option>`).join("") || '<option value="">Sem produtos</option>'}</select>
+    ${r.itens.map((it,idx)=>{ const sug = dispSugestao(it, venda);
+      return `<div class="sale-row">
+        <select id="disp-prod-${idx}" onchange="dispRecalc()"><option value="">— escolher produto —</option>${venda.map(m=>`<option value="${m.id}" ${sug&&sug.id===m.id?'selected':''}>${esc(m.nome)} — ${fmtMZN(m.preco)} (stock ${m.stock})</option>`).join("")}</select>
         <input type="number" id="disp-qtd-${idx}" value="1" min="1" onchange="dispRecalc()" title="Quantidade a dispensar">
-        <span class="cell-sub">${esc(it.medicamento)}</span><span class="cell-sub">${esc(it.dose||'')} · ${esc(it.duracao||'')}</span><span></span>
-      </div>`).join("")}
+        <span class="cell-sub"><b>Receitado:</b> ${esc(it.medicamento)}</span><span class="cell-sub">${esc(it.dose||'')} · ${esc(it.duracao||'')}</span><span class="cell-sub" id="disp-linha-${idx}"></span>
+      </div>`; }).join("")}
     <div class="field-row" style="margin-top:12px;"><div class="field" id="disp-metodo-box" style="flex:2 1 300px;"><label>Forma(s) de pagamento (parte do paciente)</label>${pmHtml("disp-pm")}</div>
       <div class="field"><label style="visibility:hidden;">Total</label><div class="price-chip" id="disp-total">Total: MZN 0</div></div></div>
     <div class="muted-note">Confirme o produto e a quantidade a dispensar. Produtos expirados ou inactivos não aparecem.</div>`;
   dispRecalc();
   openModal('modal-dispensar');
+}
+function dispNorm(t){ return String(t||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9 ]+/g,' ').replace(/\s+/g,' ').trim(); }
+function dispSugestao(it, venda){
+  if(it.produtoId){ const m = venda.find(x=>x.id===it.produtoId); if(m) return m; }
+  const alvo = dispNorm(it.medicamento); if(!alvo) return null;
+  const ex = venda.filter(m=>dispNorm(m.nome)===alvo); if(ex.length===1) return ex[0];
+  const tk = alvo.split(' ').filter(Boolean);
+  const pts = venda.map(m=>{ const nt = dispNorm(m.nome).split(' ').filter(Boolean), com = tk.filter(t=>nt.includes(t)).length; return {m, sc: com===0 ? 0 : com/Math.max(tk.length, nt.length)}; }).sort((a,b)=>b.sc-a.sc);
+  // só sugere quando há um candidato claramente melhor; na dúvida o farmacêutico escolhe (nunca adivinha pelo primeiro nome)
+  return pts.length && pts[0].sc>=0.75 && (!pts[1] || pts[1].sc < pts[0].sc) ? pts[0].m : null;
 }
 function dispItens(r){
   const itens = [];
@@ -4231,6 +4285,8 @@ function dispRecalc(){
   const r = receitas.find(x=>x.id===window._dispRx); if(!r) return;
   const itens = dispItens(r), pg = window._dispPg;
   let usado = 0; itens.forEach(it=>{ const cv = dividirCobertura(it.subtotal, pg, it.cat, it.produtoId, r.pacienteNid, null, usado); it.valorEntidade = cv.valorEntidade; usado += cv.valorEntidade; });
+  r.itens.forEach((_,idx)=>{ const l = el('disp-linha-'+idx), sel = el('disp-prod-'+idx), m = sel ? medById(sel.value) : null, q = Math.floor(Number(el('disp-qtd-'+idx).value)||0);
+    if(l) l.innerHTML = m && q>0 ? `${q} × ${fmtMZN(m.preco)} = <b>${fmtMZN(r2((Number(m.preco)||0)*q))}</b>${Number(m.stock)<q?' <span style="color:#b00;">· sem stock suficiente</span>':''}` : '<span style="color:#b00;">sem produto escolhido</span>'; });
   const total = r2(itens.reduce((t,i)=>t+i.subtotal,0)), ve = r2(itens.reduce((t,i)=>t+(i.valorEntidade||0),0));
   el('disp-total').textContent = 'Total: '+fmtMZN(total)+(pg.tipo!=='individual' ? ` · Entidade ${fmtMZN(ve)} · Paciente ${fmtMZN(total-ve)}` : '');
   el('disp-metodo-box').style.display = total-ve>0 ? '' : 'none';
@@ -4241,6 +4297,7 @@ async function confirmDispensar(){
   if(!r || r.estado!=='Pendente'){ closeModal('modal-dispensar'); toast("⚠️ Esta receita já foi dispensada."); return; }
   const itens = dispItens(r), pg = window._dispPg;
   if(!itens.length){ toast("⚠️ Seleccione os produtos a dispensar."); return; }
+  if(itens.length < r.itens.length && !confirm(`${r.itens.length-itens.length} medicamento(s) da receita ficam sem produto escolhido e NÃO serão dispensados nem facturados. Continuar?`)) return;
   for(const it of itens){ const m = medById(it.produtoId); if(prodExpirado(m) || !prodAtivo(m)){ toast(`⚠️ ${m.nome} está expirado ou inactivo e não pode ser dispensado.`); return; } if(Number(m.stock)<it.qtd){ toast(`⚠️ Stock insuficiente de ${m.nome} (disponível: ${m.stock}).`); return; } }
   let usado = 0; itens.forEach(it=>{ const cv = dividirCobertura(it.subtotal, pg, it.cat, it.produtoId, r.pacienteNid, null, usado); it.valorEntidade = cv.valorEntidade; usado += cv.valorEntidade; });
   const total = r2(itens.reduce((t,i)=>t+i.subtotal,0)), ve = r2(itens.reduce((t,i)=>t+i.valorEntidade,0)), vp = r2(total-ve), ref = r2(itens.reduce((t,i)=>t+i.precoRef*i.qtd,0));
