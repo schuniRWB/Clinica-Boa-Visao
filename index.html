@@ -5168,7 +5168,9 @@ function catCfg(tipo){
 }
 function viewCatalogo(tipo){
   const c = catCfg(tipo), isT = tipo==='tratamento';
-  return `
+  const pend = (currentUser.role==='admin') ? (()=>{ const k = tabela2026Plano(false).cont[isT?'trat':'exa']; return k.n + k.u; })() : 0;
+  const aviso = pend ? `<div class="card" style="margin-bottom:14px;border-color:var(--warn,#d69e2e);"><b>${pend} ${isT?'tratamento(s)/procedimento(s)':'exame(s)'} da tabela de preços 2027 ainda não ${pend===1?'está carregado':'estão carregados'} ou ${pend===1?'tem':'têm'} o preço desactualizado.</b> <button class="btn solid sm" type="button" id="cat-t26" onclick="catAplicarTabela()">Carregar tabela 2027 agora</button> <span class="cell-sub" id="cat-t26-st"></span></div>` : '';
+  return `${aviso}
   <div class="page-head">
     <div><h1>${c.titulo}</h1><div class="desc">${isT ? 'Catálogo de tratamentos e preçário. O médico prescreve a partir desta lista; o paciente paga no Caixa antes de o tratamento iniciar.' : 'Catálogo de exames laboratoriais e preçário. O médico solicita a partir desta lista; o paciente paga no Caixa antes de o exame ser realizado.'}</div></div>
     <div class="page-actions"><button class="btn solid" onclick="openCatalogo('${tipo}')">+ Novo ${c.singular}</button></div>
@@ -5178,9 +5180,14 @@ function viewCatalogo(tipo){
       <select onchange="catEspFiltro=this.value;filterCatalogo('${tipo}',el('cat-search').value)"><option value="">Todas as especialidades</option>${especialidades.map(e=>`<option value="${e.id}" ${catEspFiltro===e.id?'selected':''}>${esc(e.nome)}</option>`).join('')}</select></div>
     <div class="table-wrap"><table>
       <thead><tr><th>${isT?'Tratamento / procedimento':'Exame'}</th>${isT?'<th>Categoria</th>':''}<th>Especialidades</th><th>Preço</th>${isT?'<th>Composição</th>':''}<th></th></tr></thead>
-      <tbody id="cat-tbody">${catalogoRows(tipo, c.lista())}</tbody>
+      <tbody id="cat-tbody">${catalogoRows(tipo, c.lista().filter(i=>!catEspFiltro || itemDaEspecialidade(i, catEspFiltro)))}</tbody>
     </table></div>
   </div>`;
+}
+async function catAplicarTabela(){
+  const b = el('cat-t26'), st = el('cat-t26-st'); b.disabled = true; st.textContent = 'A carregar…';
+  try{ const c = await aplicarTabela2026(); const n = Object.values(c).reduce((s,x)=>s+x.n,0), u = Object.values(c).reduce((s,x)=>s+x.u,0); toast(`✅ Tabela 2027 carregada: ${n} novos, ${u} preços actualizados.`); setTimeout(()=>{ if(currentUser) render(); }, 600); }
+  catch(e){ b.disabled = false; st.textContent = '⚠️ Erro: '+e.message; }
 }
 function catalogoRows(tipo, lista){
   if(!lista.length) return `<tr><td colspan="6"><div class="empty">${tipo==='tratamento'?'Nenhum tratamento cadastrado.':'Nenhum exame cadastrado.'} Use o botão "+ Novo" para começar o preçário.</div></td></tr>`;
