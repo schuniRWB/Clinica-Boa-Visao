@@ -982,6 +982,7 @@ tbody tr:last-child td{border-bottom:none;}
         <div class="cell-sub" style="margin-top:4px;">Use o código impresso na embalagem. Se o produto não tiver (armações, luvas a granel…), gere um código interno e imprima a etiqueta.</div></div>
       <div class="field-row">
         <div class="field"><label>Categoria</label><select id="mf-categoria" onchange="mfToggleSubtipo()"><option>Medicamento</option><option>Suprimento</option><option>Óptica</option></select></div>
+        <div class="field"><label>Grupo</label><input id="mf-grupo" type="text" list="mf-grupos" placeholder="ex.: Analgésicos" autocomplete="off"><datalist id="mf-grupos"></datalist></div>
         <div class="field" id="mf-subtipo-box"><label>Tipo</label><select id="mf-subtipo"><option>Comprimido</option><option>Xarope</option><option>Injetável</option><option>Pomada</option><option>Outro</option></select></div>
       </div>
       <div class="field-row">
@@ -1047,6 +1048,7 @@ tbody tr:last-child td{border-bottom:none;}
         <div class="field"><label>Plano</label><select id="vd-plano" onchange="vdRefreshPrecos()"></select></div>
         <div class="field"><label>Nº de autorização</label><input id="vd-autorizacao" type="text"></div>
       </div>
+      <div class="field"><label>🔎 Pesquisar medicamento</label><input id="vd-busca" type="search" autocomplete="off" placeholder="Escreva parte do nome (ex.: «para», «diclo inj», «colirio»)…" oninput="vdBuscar(this.value)" onkeydown="vdBuscaKey(event)"><div id="vd-res" style="display:none;margin-top:4px;border:1px solid var(--border,#d6dee5);border-radius:8px;max-height:230px;overflow:auto;background:var(--surface,#fff);"></div></div>
       <div class="field"><label>📟 Leitor de código de barras</label><input id="vd-scan" type="text" autocomplete="off" placeholder="Aponte o leitor ao produto — cada leitura acrescenta 1 unidade" onkeydown="vdScanKey(event)"></div>
       <div id="vd-items"></div>
       <button class="btn sm ghost" onclick="addVendaItem()">+ Adicionar produto (manual)</button>
@@ -1553,6 +1555,40 @@ async function aplicarTabela2026UI(){
   catch(e){ b.disabled = false; st.textContent = '⚠️ Erro: '+e.message; }
 }
 
+const TABELA_FARMACIA = {"grupos":["Analgésicos","Antimaláricos","Antibióticos","Anti-hipertensivos","Corticosteróides","Vitaminas","Antiácidos","Electrólitos","Colírios","Antidepressivos","Testes rápidos","Anti-gotosos","Material médico-cirúrgico","Antiasmáticos","Laxantes","Diversos","Vacinas","Antidiabéticos"],"itens":[["Analgésicos","Paracetamol comp.","Medicamento","Comprimido",25],["Analgésicos","Paracetamol comp. 500 mg","Medicamento","Comprimido",600],["Analgésicos","Morfina inj.","Medicamento","Injetável",1000],["Analgésicos","Tramadol inj.","Medicamento","Injetável",250],["Analgésicos","Diclofenac gel","Medicamento","Pomada",150],["Analgésicos","Manitol inj.","Medicamento","Injetável",1100],["Analgésicos","Tramadol caps.","Medicamento","Comprimido",160],["Analgésicos","Paracetamol sup.","Medicamento","Outro",550],["Analgésicos","Ibuprofeno 400 mg","Medicamento","Comprimido",25],["Analgésicos","Ibuprofeno sup.","Medicamento","Outro",250],["Analgésicos","Indometacina caps.","Medicamento","Comprimido",60],["Analgésicos","Diclofenac inj.","Medicamento","Injetável",250],["Analgésicos","Diclofenac comp.","Medicamento","Comprimido",25],["Analgésicos","Paracetamol + diclofenac","Medicamento","Comprimido",25],["Antimaláricos","AL 6x4 (arteméter + lumefantrina)","Medicamento","Comprimido",300],["Antimaláricos","Artesunato inj.","Medicamento","Injetável",600],["Antibióticos","Clavamox comp.","Medicamento","Comprimido",300],["Antibióticos","Eritromicina comp.","Medicamento","Comprimido",170],["Antibióticos","Eritromicina sup.","Medicamento","Outro",250],["Antibióticos","Cotrimoxazol sup.","Medicamento","Outro",250],["Antibióticos","Ciprofloxacina comp. 500","Medicamento","Comprimido",90],["Antibióticos","Cefixima comp. 400 mg","Medicamento","Comprimido",400],["Antibióticos","Nitrofurantoína comp.","Medicamento","Comprimido",75],["Antibióticos","Cotrimoxazol comp.","Medicamento","Comprimido",50],["Antibióticos","Ceftriaxona inj.","Medicamento","Injetável",350],["Antibióticos","Metronidazol inj.","Medicamento","Injetável",550],["Antibióticos","Fenoximetilpenicilina sup.","Medicamento","Outro",250],["Antibióticos","Fenoximetilpenicilina comp.","Medicamento","Comprimido",75],["Antibióticos","Nistatina sup.","Medicamento","Outro",250],["Antibióticos","Bacitracina creme","Medicamento","Pomada",250],["Antibióticos","Betametasona creme","Medicamento","Pomada",125],["Antibióticos","Cetoconazol creme","Medicamento","Pomada",125],["Antibióticos","Fastrin comp.","Medicamento","Comprimido",300],["Antibióticos","Butilescopolamina comp.","Medicamento","Comprimido",90],["Antibióticos","Butilescopolamina inj.","Medicamento","Injetável",250],["Antibióticos","Metoclopramida inj.","Medicamento","Injetável",500],["Antibióticos","Aciclovir comp. 200 mg","Medicamento","Comprimido",0],["Antibióticos","Gentamicina inj.","Medicamento","Injetável",250],["Antibióticos","Penicilina procaína inj.","Medicamento","Injetável",600],["Antibióticos","Ampicilina inj.","Medicamento","Injetável",600],["Antibióticos","Amoxicilina caps.","Medicamento","Comprimido",60],["Antibióticos","Doxiciclina caps.","Medicamento","Comprimido",75],["Antibióticos","Norfloxacina + metronidazol","Medicamento","Comprimido",75],["Antibióticos","Ciprofloxacina 500 mg","Medicamento","Comprimido",90],["Antibióticos","Metronidazol comp.","Medicamento","Comprimido",25],["Antibióticos","Praziquantel 60 mg","Medicamento","Comprimido",100],["Antibióticos","Albendazol comp.","Medicamento","Comprimido",50],["Antibióticos","Cefixima sup.","Medicamento","Outro",250],["Anti-hipertensivos","Furosemida comp.","Medicamento","Comprimido",25],["Anti-hipertensivos","Co-amilorida","Medicamento","Comprimido",90],["Anti-hipertensivos","Nifedipina comp.","Medicamento","Comprimido",75],["Anti-hipertensivos","Furosemida inj.","Medicamento","Injetável",350],["Anti-hipertensivos","Sinvastatina comp.","Medicamento","Comprimido",100],["Anti-hipertensivos","Amlodipina comp.","Medicamento","Comprimido",75],["Anti-hipertensivos","Hidralazina inj.","Medicamento","Injetável",550],["Anti-hipertensivos","Hidroclorotiazida comp.","Medicamento","Comprimido",50],["Corticosteróides","Hidrocortisona inj.","Medicamento","Injetável",550],["Corticosteróides","Adrenalina inj.","Medicamento","Injetável",1000],["Corticosteróides","Dexametasona inj.","Medicamento","Injetável",600],["Corticosteróides","Prednisolona inj.","Medicamento","Injetável",550],["Corticosteróides","Prednisolona 20 mg","Medicamento","Comprimido",125],["Corticosteróides","Prednisolona 5 mg","Medicamento","Comprimido",25],["Vitaminas","Sulfato ferroso 200 mg","Medicamento","Comprimido",50],["Vitaminas","Sulfato + ácido fólico","Medicamento","Comprimido",50],["Vitaminas","Multivitamina comp.","Medicamento","Comprimido",60],["Vitaminas","Ácido ascórbico","Medicamento","Comprimido",60],["Vitaminas","Complexo B sup.","Medicamento","Outro",250],["Vitaminas","Complexo B comp.","Medicamento","Comprimido",50],["Antiácidos","Hidróxido de alumínio","Medicamento","Comprimido",60],["Antiácidos","Ranitidina inj.","Medicamento","Injetável",600],["Antiácidos","Fenitoína inj.","Medicamento","Injetável",500],["Antiácidos","Omeprazol 20 mg","Medicamento","Comprimido",50],["Antiácidos","Omeprazol inj.","Medicamento","Injetável",600],["Electrólitos","Lactato de Ringer 1000 ml","Medicamento","Outro",550],["Electrólitos","Cloreto de sódio 1000 ml","Medicamento","Outro",550],["Electrólitos","Lactato de Ringer 500 ml","Medicamento","Outro",300],["Electrólitos","Cloreto de sódio 500 ml","Medicamento","Outro",300],["Electrólitos","SRO sais de reidratação oral","Medicamento","Outro",50],["Electrólitos","Dextrose 5% 500 ml","Medicamento","Outro",300],["Electrólitos","Dextrose 50%","Medicamento","Outro",1500],["Colírios","Ciprofloxacina colírio","Medicamento","Outro",250],["Colírios","Gentamicina colírio","Medicamento","Outro",250],["Colírios","Prednisolona colírio","Medicamento","Outro",250],["Colírios","Atropina colírio","Medicamento","Outro",550],["Colírios","Tetraciclina pomada oftálmica","Medicamento","Pomada",125],["Colírios","Carboximetil celulose","Medicamento","Outro",400],["Colírios","Latanoprosta colírio","Medicamento","Outro",500],["Colírios","Cetorolac colírio","Medicamento","Outro",250],["Colírios","Cloreto de sódio colírio","Medicamento","Outro",250],["Colírios","Líquido de limpeza de lentes","Óptica","Acessório",0],["Colírios","Timolol colírio","Medicamento","Outro",500],["Colírios","Tobramicina +","Medicamento","Outro",500],["Colírios","Nafazolina + clorfeniramina colírio","Medicamento","Outro",500],["Colírios","Cromoglicato de sódio colírio","Medicamento","Outro",400],["Colírios","Olopatadina colírio","Medicamento","Outro",500],["Colírios","Dexametasona + cloranfenicol","Medicamento","Outro",0],["Colírios","Ofloxacina + dexametasona colírio","Medicamento","Outro",0],["Colírios","Tropicamida colírio","Medicamento","Outro",0],["Colírios","Tropicamida + fenilefrina colírio","Medicamento","Outro",0],["Antidepressivos","Amitriptilina comp. 25 mg","Medicamento","Comprimido",60],["Testes rápidos","Helicobacter pylori","Medicamento","Outro",2500],["Testes rápidos","Febre tifoide","Medicamento","Outro",2000],["Testes rápidos","Determine (teste HIV)","Medicamento","Outro",300],["Testes rápidos","TDR malária","Medicamento","Outro",300],["Testes rápidos","Sífilis","Medicamento","Outro",500],["Testes rápidos","Hepatite B","Medicamento","Outro",2000],["Testes rápidos","Hepatite C","Medicamento","Outro",2000],["Testes rápidos","HCV1","Medicamento","Outro",2000],["Anti-gotosos","Alopurinol comp.","Medicamento","Comprimido",100],["Anti-gotosos","Colchicina comp.","Medicamento","Comprimido",0],["Material médico-cirúrgico","Cateter","Suprimento","Cateteres",75],["Material médico-cirúrgico","Sistema de soro","Suprimento","Outro",75],["Material médico-cirúrgico","Seringa 10 ml","Suprimento","Agulhas e seringas",50],["Material médico-cirúrgico","Seringa 5 ml","Suprimento","Agulhas e seringas",30],["Material médico-cirúrgico","Algodão 500 mg","Suprimento","Compressas e pensos",0],["Material médico-cirúrgico","Gaze hidrofilo 90x100","Suprimento","Compressas e pensos",0],["Material médico-cirúrgico","Adesivo de zinco","Suprimento","Compressas e pensos",0],["Material médico-cirúrgico","Ligadura de gaze","Suprimento","Compressas e pensos",0],["Material médico-cirúrgico","Seringa de insulina","Suprimento","Agulhas e seringas",40],["Material médico-cirúrgico","Seringa 2 ml","Suprimento","Agulhas e seringas",0],["Material médico-cirúrgico","Luvas cirúrgicas","Suprimento","Luvas",75],["Material médico-cirúrgico","Seringa 50 ml","Suprimento","Agulhas e seringas",150],["Material médico-cirúrgico","Seringa 20 ml","Suprimento","Agulhas e seringas",100],["Material médico-cirúrgico","Tubo de hemograma","Suprimento","Outro",0],["Material médico-cirúrgico","Tubo de bioquímica","Suprimento","Outro",0],["Material médico-cirúrgico","Frasco de urina","Suprimento","Outro",0],["Material médico-cirúrgico","Tubos cónicos","Suprimento","Outro",0],["Material médico-cirúrgico","Pipetas de pasteur","Suprimento","Outro",0],["Material médico-cirúrgico","Luvas de exame","Suprimento","Luvas",0],["Material médico-cirúrgico","Gesso 10cmx3","Suprimento","Compressas e pensos",0],["Material médico-cirúrgico","Gesso 15cmx3","Suprimento","Compressas e pensos",500],["Material médico-cirúrgico","Máscaras cirúrgicas","Suprimento","Outro",0],["Material médico-cirúrgico","Saco colector de urina e algália","Suprimento","Cateteres",450],["Material médico-cirúrgico","Sonda nasogástrica","Suprimento","Cateteres",0],["Antiasmáticos","Salbutamol comp.","Medicamento","Comprimido",0],["Antiasmáticos","Salbutamol aerossol","Medicamento","Outro",150],["Antiasmáticos","Aminofilina inj.","Medicamento","Injetável",0],["Antiasmáticos","Aminofilina comp.","Medicamento","Comprimido",25],["Laxantes","Bisacodilo comp.","Medicamento","Comprimido",0],["Diversos","Vitamina K","Medicamento","Outro",1000],["Diversos","Oxitocina inj.","Medicamento","Injetável",500],["Vacinas","Anti rábica","Medicamento","Outro",3850],["Vacinas","VAT (vacina antitetânica)","Medicamento","Outro",300],["Vacinas","Soro antiofídico inj.","Medicamento","Injetável",7500],["Antidiabéticos","Metformina 500 mg","Medicamento","Comprimido",40],["Antidiabéticos","Glibenclamida comp.","Medicamento","Comprimido",30],["Antidiabéticos","Insulina","Medicamento","Outro",150]]};
+
+/* ================= TABELA DE PREÇOS DA FARMÁCIA (lista «Novembro 2026»: Nome / Preço / Quantidade, por grupo) ================= */
+function medGrupo(m){ return m.grupo || (m.categoria==='Óptica' ? 'Óptica' : m.categoria==='Suprimento' ? 'Material médico-cirúrgico' : 'Sem grupo'); }
+function tabelaFarmaciaPlano(vazio){
+  const ex = vazio ? [] : medicamentos, mapa = new Map(ex.map(x=>[xlNorm(x.nome), x])), docs = [], c = {n:0,u:0,i:0,semPreco:0};
+  TABELA_FARMACIA.itens.forEach(([grupo, nome, categoria, subtipo, preco], i)=>{
+    const e = mapa.get(xlNorm(nome));
+    if(!e){ docs.push({id:'tf_'+i, nome, categoria, subtipo, grupo, preco, precoCompra:'', stock:0, stockMin:0, validade:'', lote:'', codigoBarras:'', ativo:true}); c.n++; if(!preco) c.semPreco++; }
+    else if((preco && Number(e.preco)!==preco) || (e.grupo||'')!==grupo){ docs.push({id:e.id, grupo, ...(preco?{preco}:{})}); c.u++; }
+    else c.i++;
+  });
+  return {docs, cont:c};
+}
+async function aplicarTabelaFarmacia(opts){
+  opts = opts||{};
+  if(!opts.vazio && (!currentUser || currentUser.role!=='admin')) return null;
+  const {docs, cont} = tabelaFarmaciaPlano(!!opts.vazio);
+  await Store.bulkSet('medicamentos', docs);
+  if(!opts.vazio) audit('tabela_farmacia', 'Farmácia', 'TABELA_FARMACIA', `${cont.n} produtos criados · ${cont.u} actualizados (stock não alterado)`);
+  return cont;
+}
+function cardTabelaFarmacia(){
+  const {cont} = tabelaFarmaciaPlano(false), pend = cont.n+cont.u;
+  return `<div class="card" style="margin-bottom:14px;"><h3>Tabela de preços da farmácia (Novembro 2026)</h3>
+    <div class="csub">Carrega os ${TABELA_FARMACIA.itens.length} produtos da lista da farmácia, organizados por grupo (analgésicos, antibióticos, colírios, vitaminas, material médico-cirúrgico…). Produtos que já existem com o mesmo nome só ficam com o preço e o grupo da lista; <b>o stock nunca é alterado</b>. Os produtos novos entram com quantidade 0, para o farmacêutico dar entrada. ${TABELA_FARMACIA.itens.filter(x=>!x[4]).length} produtos vêm sem preço na lista e ficam marcados «Preço por definir» (não se vendem até terem preço).</div>
+    <button class="btn primary" type="button" id="tf-go" onclick="aplicarTabelaFarmaciaUI()" ${pend?'':'disabled'}>${pend?`Carregar lista da farmácia (${cont.n} novos · ${cont.u} a actualizar)`:'✅ Lista da farmácia já carregada'}</button> <span id="tf-st" class="cell-sub"></span></div>`;
+}
+async function aplicarTabelaFarmaciaUI(){
+  if(!confirm('Carregar a lista de preços da farmácia? Nada é apagado e o stock não é alterado.')) return;
+  const b = el('tf-go'), st = el('tf-st'); b.disabled = true; st.textContent = 'A carregar…';
+  try{ const c = await aplicarTabelaFarmacia(); st.textContent = `✅ ${c.n} criados · ${c.u} actualizados.`; toast(`✅ Farmácia: ${c.n} produtos novos, ${c.u} actualizados.`); }
+  catch(e){ b.disabled = false; st.textContent = '⚠️ Erro: '+e.message; }
+}
 
 const MENU = [
   {sec:"Geral", items:[
@@ -1952,6 +1988,7 @@ async function finishSetup(){
     if(!nomesT26.has(xlNorm(nomeEsp))) await Store.setDoc('especialidades', 'seed'+ESPECIALIDADES_SEED.indexOf(nomeEsp), {nome: nomeEsp, preco: 0});
   }
   await aplicarTabela2026({vazio:true});
+  await aplicarTabelaFarmacia({vazio:true});
   auditSuspended = false;
   audit('configuracao_inicial', 'Sistema', '', 'clínica configurada e '+ESPECIALIDADES_SEED.length+' especialidades criadas');
   const salt = newSalt();
@@ -2457,6 +2494,7 @@ const XL_TIPOS = {
   optica:{nome:'Produtos da óptica', cat:'Óptica', cols:[['nome','Nome',1,'Armação Ray 52'],['subtipo','Tipo (Armação/Lente/Óculos de sol/Óculos graduados/Acessório)',0,'Armação'],['preco','Preço de venda',1,'3500'],['precoCompra','Preço de compra',0,'2000'],['stock','Stock inicial',0,'10'],['stockMin','Stock mínimo',0,'2'],['validade','Validade',0,''],['lote','Lote',0,'']]}
 };
 ['medicamentos','optica'].forEach(k=>{ XL_TIPOS[k].cols.splice(1,0,['codigoBarras','Código de barras',0,'6001234567890']); });
+XL_TIPOS.medicamentos.cols.splice(2,0,['grupo','Grupo (ex.: Analgésicos, Antibióticos, Colírios)',0,'Analgésicos']);
 XL_TIPOS.suprimentos = {nome:'Suprimentos e material de consumo (luvas, agulhas, cateteres…)', cat:'Suprimento', cols:XL_TIPOS.medicamentos.cols.map(c=>c.slice())};
 XL_TIPOS.suprimentos.cols.forEach(c=>{ if(c[0]==='nome') c[3] = 'Luvas de exame (unidade)'; if(c[0]==='subtipo'){ c[1] = 'Tipo (Luvas/Agulhas e seringas/Cateteres/Compressas e pensos/Soluções e desinfectantes/Outro)'; c[3] = 'Luvas'; } if(c[0]==='preco'){ c[1] = 'Preço unitário'; } });
 XL_TIPOS.tratamentos.cols.push(['maoObra','Mão de obra',0,'400'], ['suprimentos','Suprimentos (Nome x qtd; Nome x qtd)',0,'Luvas de exame x2; Cateter 20G x1']);
@@ -2568,7 +2606,7 @@ async function xlLer(){
         const cb = normCb(String(o.codigoBarras==null?'':o.codigoBarras).replace(/\.0+$/,''));
         if(cb){ if(cbExist.has(cb) || cbVistos.has(cb)) return erro(`Código de barras ${cb} já está atribuído a outro produto.`); cbVistos.add(cb); }
         vistos.add(ch);
-        ok.push({nome, categoria:T.cat, codigoBarras:cb, subtipo:String(o.subtipo||'').trim()||(T.cat==='Óptica'?'Acessório':'Outro'), preco:r2(preco), precoCompra:compra===''?'':r2(compra), stock:Math.floor(stock), stockMin:Math.floor(min), validade:val||'', lote:String(o.lote||'').trim(), ativo:true});
+        ok.push({nome, categoria:T.cat, grupo:String(o.grupo||'').trim(), codigoBarras:cb, subtipo:String(o.subtipo||'').trim()||(T.cat==='Óptica'?'Acessório':'Outro'), preco:r2(preco), precoCompra:compra===''?'':r2(compra), stock:Math.floor(stock), stockMin:Math.floor(min), validade:val||'', lote:String(o.lote||'').trim(), ativo:true});
       }
     });
     xlState = {tipo, ok, erros};
@@ -3565,7 +3603,7 @@ function farmScanKey(e){ if(e.key!=='Enter') return; e.preventDefault(); const c
 function farmScan(cb){
   const m = medByCodigo(cb);
   if(m){
-    beep(true); farmFiltro.q = m.nome; const t = el('meds-tbody'); if(t) t.innerHTML = medRows(medicamentos);
+    beep(true); farmFiltro.q = m.nome; const fq = el('farm-q'); if(fq) fq.value = m.nome; const t = el('meds-tbody'); if(t) t.innerHTML = medRows(medicamentos);
     if(!prodAtivo(m)){ toast(`⚠️ ${esc(m.nome)} está inactivo.`); return; }
     if(['admin','farmacia'].includes(currentUser.role)) openMovStock(m.id);
     return;
@@ -3576,8 +3614,13 @@ function farmScan(cb){
 }
 function vdScanKey(e){ if(e.key!=='Enter') return; e.preventDefault(); const cb = normCb(e.target.value); e.target.value = ''; if(cb) vdAdicionarPorCodigo(cb); }
 function vdAdicionarPorCodigo(cb){
-  const m = medByCodigo(cb), falha = msg=>{ beep(false); toast('⚠️ '+msg, 4500); return false; };
-  if(!m) return falha(`Código ${esc(cb)} não cadastrado.`);
+  const m = medByCodigo(cb);
+  if(!m){ beep(false); toast('⚠️ '+`Código ${esc(cb)} não cadastrado.`, 4500); return false; }
+  return vdAdicionarProd(m);
+}
+function vdAdicionarProd(m){
+  const falha = msg=>{ beep(false); toast('⚠️ '+msg, 4500); return false; };
+  if(!(Number(m.preco)>0)) return falha(`${esc(m.nome)} está sem preço na lista. O Administrador tem de definir o preço antes da venda.`);
   if(m.categoria==='Suprimento') return falha(`${esc(m.nome)} é suprimento de uso interno e não se vende ao balcão.`);
   if(!prodAtivo(m)) return falha(`${esc(m.nome)} está inactivo.`);
   if(prodExpirado(m)) return falha(`${esc(m.nome)} está expirado e não pode ser vendido.`);
@@ -3595,6 +3638,17 @@ function vdAdicionarPorCodigo(cb){
   const f = el('vd-scan'); if(f) f.focus();
   return true;
 }
+/* pesquisa por nome no balcão: mostra os melhores resultados; clicar (ou Enter no 1.º) acrescenta 1 unidade */
+function vdMatches(q){ return medicamentos.filter(m=>prodAtivo(m) && !prodExpirado(m) && m.categoria!=='Suprimento' && medCasa(m,q)).sort((a,b)=>{ const na=xlNorm(a.nome), nb=xlNorm(b.nome), t=xlNorm(q.split(/\s+/)[0]||''); return (nb.startsWith(t)-na.startsWith(t)) || na.localeCompare(nb); }).slice(0,12); }
+function vdBuscar(q){
+  const box = el('vd-res'); q = (q||'').trim();
+  if(!q){ box.style.display = 'none'; box.innerHTML = ''; return; }
+  const l = vdMatches(q);
+  box.style.display = '';
+  box.innerHTML = l.length ? l.map(m=>`<div onclick="vdEscolher('${m.id}')" style="display:flex;justify-content:space-between;gap:10px;padding:8px 10px;cursor:pointer;border-bottom:1px solid var(--border,#e5ebf0);"><span>${esc(m.nome)} <span class="cell-sub">${esc(medGrupo(m))}</span></span><span style="white-space:nowrap;">${Number(m.preco)>0?'<b>'+fmtMZN(m.preco)+'</b>':'<span class="tag amber">sem preço</span>'} <span class="cell-sub">· stock ${m.stock}</span></span></div>`).join('') : '<div class="cell-sub" style="padding:10px;">Nenhum produto encontrado.</div>';
+}
+function vdBuscaKey(e){ if(e.key!=='Enter') return; e.preventDefault(); const l = vdMatches(e.target.value.trim()); if(l[0]) vdEscolher(l[0].id); }
+function vdEscolher(id){ const m = medById(id); if(m && vdAdicionarProd(m)){ const b = el('vd-busca'); b.value = ''; vdBuscar(''); b.focus(); } }
 /* Code 128 (B, ou C quando só há dígitos em número par) → SVG */
 function code128Valores(txt){
   txt = String(txt); const v = [];
@@ -3722,7 +3776,7 @@ function prodEstado(m){
   if(prodAExpirar(m)) return ['Expira em breve','amber'];
   return ['Normal','green'];
 }
-let farmTab = 'stock', farmFiltro = {q:'', inativos:false}, vendFiltro = {q:'', de:'', ate:''}, movFiltro = {q:'', tipo:'', de:'', ate:''};
+let farmTab = 'stock', farmFiltro = {q:'', inativos:false, grupo:''}, vendFiltro = {q:'', de:'', ate:''}, movFiltro = {q:'', tipo:'', de:'', ate:''};
 function farmSetTab(t){ farmTab = t; render(); }
 function viewFarmacia(){
   const admin = currentUser.role==='admin';
@@ -3735,32 +3789,49 @@ function viewFarmacia(){
   <div class="tabs">${tabs.map(([id,l])=>`<div class="tab ${farmTab===id?'active':''}" onclick="farmSetTab('${id}')">${l}</div>`).join('')}</div>
   ${farmTab==='stock' ? farmStock(admin) : (farmTab==='vendas' ? farmVendas() : farmMovimentos())}`;
 }
+function medCasa(m, q){
+  if(!q) return true;
+  const alvo = xlNorm([m.nome, medGrupo(m), m.subtipo, m.categoria, m.codigoBarras, m.lote].join(' '));
+  return q.split(/\s+/).map(xlNorm).filter(Boolean).every(t=>alvo.includes(t));
+}
+function medGruposOrdem(){
+  const ordem = TABELA_FARMACIA.grupos, extra = [...new Set(medicamentos.map(medGrupo))].filter(g=>!ordem.includes(g)).sort((a,b)=>a.localeCompare(b));
+  return [...ordem, ...extra.filter(g=>g!=='Óptica'&&g!=='Sem grupo'), ...extra.filter(g=>g==='Óptica'), ...extra.filter(g=>g==='Sem grupo')];
+}
 function farmStock(admin){
-  const ativos = medicamentos.filter(prodAtivo), baixo = ativos.filter(m=>Number(m.stock)<Number(m.stockMin)), exp = ativos.filter(prodExpirado), aexp = ativos.filter(prodAExpirar);
+  const ativos = medicamentos.filter(prodAtivo), baixo = ativos.filter(m=>Number(m.stockMin)>0 && Number(m.stock)<Number(m.stockMin)), exp = ativos.filter(prodExpirado), aexp = ativos.filter(prodAExpirar);
   const alerta = (n, txt, cor)=> n ? `<div class="muted-note" style="margin-bottom:8px;border-color:var(--${cor}-tint);background:var(--${cor}-tint);color:var(--${cor==='warn'?'ink':cor});">⚠️ ${n} ${txt}</div>` : '';
+  const grupos = medGruposOrdem().filter(g=>medicamentos.some(m=>medGrupo(m)===g));
   return `${alerta(exp.length, 'produto(s) <b>expirado(s)</b> (não podem ser vendidos nem dispensados): '+exp.map(m=>esc(m.nome)).join(', '), 'danger')}
   ${alerta(baixo.length, 'produto(s) abaixo do stock mínimo: '+baixo.map(m=>esc(m.nome)).join(', '), 'danger')}
   ${alerta(aexp.length, 'produto(s) a expirar nos próximos 60 dias: '+aexp.map(m=>esc(m.nome)+' ('+fmtDate(m.validade)+')').join(', '), 'warn')}
-  <div class="card"><h3>Stock de produtos</h3>
-    <div class="toolbar"><input id="farm-scan" type="text" autocomplete="off" style="max-width:260px;" placeholder="📟 Ler código de barras…" title="Aponte o leitor: abre o produto (para dar entrada de stock) ou, se for novo, o formulário de cadastro" onkeydown="farmScanKey(event)">
-      <input type="text" class="grow" placeholder="Pesquisar produto ou código…" value="${esc(farmFiltro.q)}" oninput="farmFiltro.q=this.value;filterMeds(this.value)">
+  <div class="card"><h3>Lista de preços e stock</h3>
+    <div class="toolbar"><input id="farm-q" type="search" class="grow" autocomplete="off" placeholder="🔎 Pesquisar medicamento (nome, grupo ou código)…" value="${esc(farmFiltro.q)}" oninput="filterMeds(this.value)" title="Escreva parte do nome, sem se preocupar com acentos ou maiúsculas. Ex.: «para», «diclo inj», «colirio»">
+      <select onchange="farmFiltro.grupo=this.value;filterMeds(el('farm-q').value)" style="max-width:220px;"><option value="">Todos os grupos</option>${grupos.map(g=>`<option value="${esc(g)}" ${farmFiltro.grupo===g?'selected':''}>${esc(g)}</option>`).join('')}</select>
+      <input id="farm-scan" type="text" autocomplete="off" style="max-width:230px;" placeholder="📟 Ler código de barras…" title="Aponte o leitor: abre o produto (para dar entrada de stock) ou, se for novo, o formulário de cadastro" onkeydown="farmScanKey(event)">
       <label style="font-size:12.5px;display:flex;gap:6px;align-items:center;"><input type="checkbox" ${farmFiltro.inativos?'checked':''} onchange="farmFiltro.inativos=this.checked;render()"> Mostrar inactivos</label></div>
-    <div class="table-wrap"><table><thead><tr><th>Produto</th><th>Categoria</th><th>Compra</th><th>Venda</th><th>Stock</th><th>Validade</th><th>Estado</th><th></th></tr></thead>
+    <div class="cell-sub" id="meds-count" style="margin:2px 0 6px;"></div>
+    <div class="table-wrap"><table><thead><tr><th>Nome do medicamento</th><th style="text-align:right;">Preço</th><th style="text-align:right;">Quantidade</th><th>Validade</th><th>Estado</th><th></th></tr></thead>
     <tbody id="meds-tbody">${medRows(medicamentos)}</tbody></table></div></div>`;
 }
 function medRows(list){
-  const admin = currentUser.role==='admin', q = (farmFiltro.q||'').toLowerCase();
-  list = list.filter(m=>(farmFiltro.inativos || prodAtivo(m)) && (!q || (m.nome||'').toLowerCase().includes(q) || String(m.codigoBarras||'').toLowerCase().includes(q)));
-  if(!list.length) return `<tr><td colspan="8"><div class="empty">Nenhum produto cadastrado.</div></td></tr>`;
-  return list.map(m=>{
-    const [est, cor] = prodEstado(m);
-    return `<tr><td class="cell-name">${esc(m.nome)}<div class="cell-sub">${esc(m.subtipo||'')}${m.lote?' · lote '+esc(m.lote):''}${m.codigoBarras?' · 🏷 '+esc(m.codigoBarras):''}</div></td>
-      <td><span class="tag ${m.categoria==='Óptica'?'blue':m.categoria==='Suprimento'?'amber':'grey'}">${esc(m.categoria)}</span></td>
-      <td>${m.precoCompra!==undefined&&m.precoCompra!==''?fmtMZN(m.precoCompra):'—'}</td><td>${fmtMZN(m.preco)}</td><td><b>${m.stock}</b> <span class="cell-sub">/ mín ${m.stockMin}</span></td>
+  const admin = currentUser.role==='admin', q = (farmFiltro.q||'').trim();
+  list = list.filter(m=>(farmFiltro.inativos || prodAtivo(m)) && (!farmFiltro.grupo || medGrupo(m)===farmFiltro.grupo) && medCasa(m, q));
+  const cnt = el('meds-count'); if(cnt) cnt.textContent = (q||farmFiltro.grupo) ? `${list.length} resultado(s)` : `${list.length} produto(s)`;
+  if(!list.length) return `<tr><td colspan="6"><div class="empty">${(q||farmFiltro.grupo)?'Nenhum produto encontrado para esta pesquisa.':'Nenhum produto cadastrado.'}</div></td></tr>`;
+  const porGrupo = new Map(); list.forEach(m=>{ const g = medGrupo(m); (porGrupo.get(g) || porGrupo.set(g,[]).get(g)).push(m); });
+  return medGruposOrdem().filter(g=>porGrupo.has(g)).map(g=>{
+    const itens = porGrupo.get(g).sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+    return `<tr class="grp-row"><td colspan="6" style="background:var(--surface-2,#f1f5f8);font-weight:700;letter-spacing:.3px;text-transform:uppercase;font-size:12px;">${esc(g)} <span class="cell-sub">(${itens.length})</span></td></tr>` + itens.map(m=>{
+      const [est, cor] = prodEstado(m), semPreco = !(Number(m.preco)>0);
+      return `<tr><td class="cell-name">${esc(m.nome)}<div class="cell-sub">${esc(m.categoria!=='Medicamento'?m.categoria+' · ':'')}${esc(m.subtipo||'')}${m.lote?' · lote '+esc(m.lote):''}${m.codigoBarras?' · 🏷 '+esc(m.codigoBarras):''}${m.precoCompra!==undefined&&m.precoCompra!==''?' · compra '+fmtMZN(m.precoCompra):''}</div></td>
+      <td style="text-align:right;">${semPreco?'<span class="tag amber">Preço por definir</span>':`<b>${fmtMZN(m.preco)}</b>`}</td>
+      <td style="text-align:right;"><b ${Number(m.stockMin)>0&&Number(m.stock)<Number(m.stockMin)?'style="color:#b42318;"':''}>${m.stock}</b>${Number(m.stockMin)>0?` <span class="cell-sub">/ mín ${m.stockMin}</span>`:''}</td>
       <td class="cell-sub">${m.validade?fmtDate(m.validade):'—'}</td><td><span class="tag ${cor}">${est}</span></td>
       <td style="white-space:nowrap;"><button class="btn sm" onclick="openMovStock('${m.id}')">Movimento</button><button class="btn sm ghost" onclick="movFiltro.q='${esc(m.nome).replace(/'/g,'')}';farmSetTab('movimentos')">Histórico</button><button class="btn sm ghost" title="Imprimir etiquetas com código de barras" onclick="openEtiqueta('${m.id}')">🏷</button>
         ${admin?`<button class="btn sm ghost" onclick="openMedicamentoModal('${m.id}')">Editar</button><button class="btn sm" onclick="toggleMedicamento('${m.id}')">${prodAtivo(m)?'Desactivar':'Reactivar'}</button>`:''}</td></tr>`;
-  }).join("");
+    }).join('');
+  }).join('');
 }
 function filterMeds(q){ farmFiltro.q = q; el('meds-tbody').innerHTML = medRows(medicamentos); }
 function openMedicamentoModal(id, cbInicial){
@@ -3770,6 +3841,7 @@ function openMedicamentoModal(id, cbInicial){
   el('modal-medicamento').dataset.editId = m ? m.id : '';
   el('mf-nome').value = m ? m.nome : '';
   el('mf-categoria').value = m ? m.categoria : 'Medicamento';
+  el('mf-grupo').value = m ? (m.grupo||'') : ''; el('mf-grupos').innerHTML = [...new Set(medicamentos.map(x=>x.grupo).filter(Boolean).concat(TABELA_FARMACIA.grupos))].map(g=>`<option value="${esc(g)}">`).join('');
   mfToggleSubtipo();
   if(m) el('mf-subtipo').value = m.subtipo||'';
   el('mf-preco').value = m ? m.preco : 0; el('mf-compra').value = m && m.precoCompra!==undefined ? m.precoCompra : '';
@@ -3789,7 +3861,7 @@ async function saveMedicamento(){
   if(medicamentos.some(m=>m.id!==editId && (m.nome||'').trim().toLowerCase()===nome.toLowerCase())){ toast("⚠️ Já existe um produto com este nome."); return; }
   const cb = normCb(el('mf-cb').value), outro = cb ? medicamentos.find(m=>m.id!==editId && normCb(m.codigoBarras)===cb) : null;
   if(outro){ toast(`⚠️ O código de barras ${esc(cb)} já está atribuído a <b>${esc(outro.nome)}</b>.`, 5000); return; }
-  const data = {nome, categoria:el('mf-categoria').value, subtipo:el('mf-subtipo').value, preco, precoCompra:compra, stockMin:Number(el('mf-min').value)||0, validade:el('mf-validade').value, lote:el('mf-lote').value.trim(), codigoBarras:cb};
+  const data = {nome, categoria:el('mf-categoria').value, grupo:el('mf-grupo').value.trim(), subtipo:el('mf-subtipo').value, preco, precoCompra:compra, stockMin:Number(el('mf-min').value)||0, validade:el('mf-validade').value, lote:el('mf-lote').value.trim(), codigoBarras:cb};
   if(editId){ await Store.setDoc('medicamentos', editId, data); }
   else{
     const inicial = Number(el('mf-stock').value)||0;
@@ -3868,7 +3940,7 @@ function openVendaModal(){
   el('vd-items').innerHTML = ""; vendaCounter = 0;
   addVendaItem();
   pmReset('vd-pm');
-  el('vd-scan').value = '';
+  el('vd-scan').value = ''; el('vd-busca').value = ''; vdBuscar('');
   openModal('modal-venda');
   setTimeout(()=>{ const f = el('vd-scan'); if(f) f.focus(); }, 60);
 }
@@ -3918,7 +3990,7 @@ function vdPagador(){
 function vdPrecoItem(m, pg){ return precoContratual(entidadeDoPagador(pg), m.categoria==='Óptica' ? 'optica' : 'medicamento', m.id, m.preco); }
 function vdOptionsHtml(){
   const pg = vdPagador().pagador || {tipo:'individual'};
-  return '<option value="" data-preco="0" data-ref="0" data-stock="0">— Seleccione o produto —</option>' + medicamentos.filter(m=>prodAtivo(m) && !prodExpirado(m) && m.categoria!=='Suprimento').map(m=>{ const pr = vdPrecoItem(m, pg); return `<option value="${m.id}" data-preco="${pr}" data-ref="${r2(m.preco)}" data-stock="${m.stock}">${esc(m.nome)} (${fmtMZN(pr)}, stock ${m.stock})</option>`; }).join('') || '<option value="">Sem produtos cadastrados</option>';
+  return '<option value="" data-preco="0" data-ref="0" data-stock="0">— Seleccione o produto —</option>' + medicamentos.filter(m=>prodAtivo(m) && !prodExpirado(m) && m.categoria!=='Suprimento' && Number(m.preco)>0).map(m=>{ const pr = vdPrecoItem(m, pg); return `<option value="${m.id}" data-preco="${pr}" data-ref="${r2(m.preco)}" data-stock="${m.stock}">${esc(m.nome)} (${fmtMZN(pr)}, stock ${m.stock})</option>`; }).join('') || '<option value="">Sem produtos cadastrados</option>';
 }
 function vdRefreshPrecos(){
   document.querySelectorAll('.sale-row').forEach(row=>{
@@ -4855,7 +4927,7 @@ function viewConfig(){
   const c = configDoc || {};
   return `
   <div class="page-head"><div><h1>Configurações</h1><div class="desc">Dados da clínica e preferências do sistema</div></div></div>
-  ${currentUser.role==='admin' ? cardTabela2026()+cardImportExcel() : ''}
+  ${currentUser.role==='admin' ? cardTabela2026()+cardTabelaFarmacia()+cardImportExcel() : ''}
   <div class="grid-2">
     <div class="card">
       <h3>Dados da clínica</h3>
