@@ -540,7 +540,15 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="modal-body">
       <div class="field"><label id="cat-nome-label">Nome</label><input id="cat-nome" type="text"></div>
       <div class="field" id="cat-categoria-box"><label>Categoria</label><select id="cat-categoria"><option>Tratamento</option><option>Procedimento</option><option>Diária de internamento</option><option>Enfermagem</option></select></div>
-      <div class="field"><label>Preço (MZN)</label><input id="cat-preco" type="number" min="0" step="any"></div>
+      <div class="field"><label>Preço (MZN)</label><input id="cat-preco" type="number" min="0" step="any" oninput="catCompResumo()"></div>
+      <div id="cat-comp-box">
+        <div class="field"><label>Composição do preço — suprimentos utilizados</label>
+          <div class="cell-sub" style="margin-bottom:6px;">Quantidade e preço unitário de cada suprimento. Baixam do stock quando o procedimento é concluído. Visível só para o Administrador e a Recepção/Caixa.</div>
+          <div id="cat-sup-rows"></div><button class="btn sm ghost" type="button" onclick="catAddSup()">+ Suprimento</button></div>
+        <div class="field-row"><div class="field"><label>Mão de obra (MZN)</label><input id="cat-mo" type="number" min="0" step="any" oninput="catCompResumo()"></div>
+          <div class="field"><label style="visibility:hidden;">.</label><button class="btn sm" type="button" onclick="catMoAuto()">Mão de obra = preço − suprimentos</button></div></div>
+        <div class="cell-sub" id="cat-comp-resumo" style="margin-bottom:8px;"></div>
+      </div>
       <div class="field" id="cat-esp-box"><label>Especialidades que podem requisitar este item</label><div id="cat-esp-list" style="display:flex;flex-wrap:wrap;gap:6px 14px;"></div><div class="cell-sub" style="margin-top:4px;">Se não marcar nenhuma, fica disponível para todas as especialidades.</div></div>
     </div>
     <div class="modal-foot">
@@ -823,7 +831,7 @@ tbody tr:last-child td{border-bottom:none;}
         <div class="field"><label>Quantidade realizada *</label><input id="et-qtd" type="number" min="1" value="1"></div>
       </div>
       <label style="display:block;font-size:12px;font-weight:600;color:var(--ink-soft);margin-bottom:5px;">Medicamentos e materiais utilizados (dão baixa de stock e entram na conta)</label>
-      <div id="et-mats"></div><button class="btn sm ghost" onclick="addMatRow()">+ Material</button>
+      <div id="et-mats"></div><div class="cell-sub" id="et-mats-nota" style="display:none;margin:4px 0;">Os suprimentos do procedimento já estão incluídos no preço (baixam do stock mas não se cobram à parte). Materiais que acrescentar são cobrados.</div><button class="btn sm ghost" onclick="addMatRow()">+ Material</button>
       <div class="field" style="margin-top:10px;"><label>Observações</label><textarea id="et-obs"></textarea></div>
     </div>
     <div class="modal-foot"><button class="btn" onclick="closeModal('modal-exec-trat')">Cancelar</button><button class="btn solid" onclick="confirmExecTrat()">Registar execução</button></div>
@@ -963,12 +971,15 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="modal-head"><h3 id="med-modal-title">Novo produto</h3><button class="modal-close" onclick="closeModal('modal-medicamento')">✕</button></div>
     <div class="modal-body">
       <div class="field"><label>Nome</label><input id="mf-nome" type="text"></div>
+      <div class="field"><label>Código de barras</label>
+        <div style="display:flex;gap:6px;"><input id="mf-cb" type="text" autocomplete="off" placeholder="Aponte o leitor para este campo e leia o produto" onkeydown="mfCbKey(event)"><button class="btn sm" type="button" onclick="mfGerarCodigo()">Gerar código interno</button></div>
+        <div class="cell-sub" style="margin-top:4px;">Use o código impresso na embalagem. Se o produto não tiver (armações, luvas a granel…), gere um código interno e imprima a etiqueta.</div></div>
       <div class="field-row">
-        <div class="field"><label>Categoria</label><select id="mf-categoria" onchange="mfToggleSubtipo()"><option>Medicamento</option><option>Óptica</option></select></div>
+        <div class="field"><label>Categoria</label><select id="mf-categoria" onchange="mfToggleSubtipo()"><option>Medicamento</option><option>Suprimento</option><option>Óptica</option></select></div>
         <div class="field" id="mf-subtipo-box"><label>Tipo</label><select id="mf-subtipo"><option>Comprimido</option><option>Xarope</option><option>Injetável</option><option>Pomada</option><option>Outro</option></select></div>
       </div>
       <div class="field-row">
-        <div class="field"><label>Preço de venda (MZN)</label><input id="mf-preco" type="number" value="0"></div>
+        <div class="field"><label id="mf-preco-lab">Preço de venda (MZN)</label><input id="mf-preco" type="number" value="0"></div>
         <div class="field"><label>Preço de compra (MZN)</label><input id="mf-compra" type="number" min="0" step="any"></div>
         <div class="field"><label>Stock inicial</label><input id="mf-stock" type="number" value="0"></div>
         <div class="field"><label>Stock mínimo</label><input id="mf-min" type="number" value="5"></div>
@@ -983,6 +994,26 @@ tbody tr:last-child td{border-bottom:none;}
       <button class="btn" onclick="closeModal('modal-medicamento')">Cancelar</button>
       <button class="btn solid" onclick="saveMedicamento()">Guardar</button>
     </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="modal-composicao">
+  <div class="modal">
+    <div class="modal-head"><h3 id="cp-title">Composição do preço</h3><button class="modal-close" onclick="closeModal('modal-composicao')">✕</button></div>
+    <div class="modal-body" id="cp-body"></div>
+    <div class="modal-foot"><button class="btn" onclick="closeModal('modal-composicao')">Fechar</button></div>
+  </div>
+</div>
+
+<div class="modal-bg" id="modal-etiqueta">
+  <div class="modal">
+    <div class="modal-head"><h3>Etiquetas com código de barras</h3><button class="modal-close" onclick="closeModal('modal-etiqueta')">✕</button></div>
+    <div class="modal-body">
+      <div id="eq-info" style="margin-bottom:10px;"></div>
+      <div class="field"><label>Número de etiquetas</label><input id="eq-copias" type="number" min="1" max="200" value="1"></div>
+      <div class="cell-sub">Imprima em papel autocolante. Cada etiqueta leva o nome, o preço e o código de barras (formato Code 128, lido por qualquer leitor).</div>
+    </div>
+    <div class="modal-foot"><button class="btn" onclick="closeModal('modal-etiqueta')">Cancelar</button><button class="btn solid" onclick="imprimirEtiquetas()">Imprimir</button></div>
   </div>
 </div>
 
@@ -1010,8 +1041,9 @@ tbody tr:last-child td{border-bottom:none;}
         <div class="field"><label>Plano</label><select id="vd-plano" onchange="vdRefreshPrecos()"></select></div>
         <div class="field"><label>Nº de autorização</label><input id="vd-autorizacao" type="text"></div>
       </div>
+      <div class="field"><label>📟 Leitor de código de barras</label><input id="vd-scan" type="text" autocomplete="off" placeholder="Aponte o leitor ao produto — cada leitura acrescenta 1 unidade" onkeydown="vdScanKey(event)"></div>
       <div id="vd-items"></div>
-      <button class="btn sm ghost" onclick="addVendaItem()">+ Adicionar produto</button>
+      <button class="btn sm ghost" onclick="addVendaItem()">+ Adicionar produto (manual)</button>
       <div class="field-row" style="margin-top:14px;">
         <div class="field" id="vd-metodo-box" style="flex:2 1 300px;"><label>Forma(s) de pagamento</label><div id="vd-pm-wrap"></div></div>
         <div class="field"><label style="visibility:hidden;">Total</label><div class="price-chip" id="vd-total">Total: MZN 0</div></div>
@@ -1447,6 +1479,7 @@ const MENU = [
   {sec:"Clínico", items:[
     {id:"recepcao", label:"Recepção", icon:"🗂", roles:["admin","recepcao"]},
     {id:"directos", label:"Procedimentos directos", icon:"💉", roles:["admin","recepcao","medico","enfermeiro"]},
+    {id:"precario", label:"Preçário e composição", icon:"📑", roles:["recepcao"]},
     {id:"pacientes", label:"Pacientes", icon:"👤", roles:["admin","recepcao","medico","farmacia","financeiro","rh"]},
     {id:"agenda", label:"Agenda", icon:"📅", roles:["admin","recepcao","medico"]},
     {id:"fila", label:"Fila de espera", icon:"⏱", roles:["admin","recepcao","medico"]},
@@ -1585,7 +1618,7 @@ function catalogoPorTipo(tipo){
   if(tipo==='tratamento') return tratamentos;
   if(tipo==='exame') return exames;
   if(tipo==='optica') return medicamentos.filter(m=>m.categoria==='Óptica');
-  if(tipo==='medicamento') return medicamentos.filter(m=>m.categoria!=='Óptica');
+  if(tipo==='medicamento') return medicamentos.filter(m=>m.categoria!=='Óptica' && m.categoria!=='Suprimento');
   return [];
 }
 function patientByNid(nid){ return patients.find(p=>String(p.id)===String(nid)); }
@@ -1969,6 +2002,7 @@ function render(){
     case "dashboard": c.innerHTML = viewDashboard(); break;
     case "recepcao": c.innerHTML = viewRecepcao(); break;
     case "directos": c.innerHTML = viewDirectos(); break;
+    case "precario": c.innerHTML = viewPrecario(); break;
     case "caixa": c.innerHTML = viewCaixa(); break;
     case "pacientes": c.innerHTML = viewPacientes(); break;
     case "agenda": c.innerHTML = viewAgenda(); break;
@@ -2288,6 +2322,10 @@ const XL_TIPOS = {
   medicamentos:{nome:'Medicamentos e suprimentos de farmácia', cat:'Medicamento', cols:[['nome','Nome',1,'Paracetamol 500 mg'],['subtipo','Tipo (Comprimido/Xarope/Injetável/Pomada/Outro)',0,'Comprimido'],['preco','Preço de venda',1,'50'],['precoCompra','Preço de compra',0,'30'],['stock','Stock inicial',0,'200'],['stockMin','Stock mínimo',0,'20'],['validade','Validade',0,'2028-06-30'],['lote','Lote',0,'L2026-01']]},
   optica:{nome:'Produtos da óptica', cat:'Óptica', cols:[['nome','Nome',1,'Armação Ray 52'],['subtipo','Tipo (Armação/Lente/Óculos de sol/Óculos graduados/Acessório)',0,'Armação'],['preco','Preço de venda',1,'3500'],['precoCompra','Preço de compra',0,'2000'],['stock','Stock inicial',0,'10'],['stockMin','Stock mínimo',0,'2'],['validade','Validade',0,''],['lote','Lote',0,'']]}
 };
+['medicamentos','optica'].forEach(k=>{ XL_TIPOS[k].cols.splice(1,0,['codigoBarras','Código de barras',0,'6001234567890']); });
+XL_TIPOS.suprimentos = {nome:'Suprimentos e material de consumo (luvas, agulhas, cateteres…)', cat:'Suprimento', cols:XL_TIPOS.medicamentos.cols.map(c=>c.slice())};
+XL_TIPOS.suprimentos.cols.forEach(c=>{ if(c[0]==='nome') c[3] = 'Luvas de exame (unidade)'; if(c[0]==='subtipo'){ c[1] = 'Tipo (Luvas/Agulhas e seringas/Cateteres/Compressas e pensos/Soluções e desinfectantes/Outro)'; c[3] = 'Luvas'; } if(c[0]==='preco'){ c[1] = 'Preço unitário'; } });
+XL_TIPOS.tratamentos.cols.push(['maoObra','Mão de obra',0,'400'], ['suprimentos','Suprimentos (Nome x qtd; Nome x qtd)',0,'Luvas de exame x2; Cateter 20G x1']);
 let xlState = null;
 const xlNorm = t => String(t||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
 function xlNum(v){
@@ -2328,7 +2366,7 @@ async function xlLer(){
     const falta = T.cols.filter(c=>c[2] && !Object.values(mapa).includes(c[0])).map(c=>c[1]);
     if(falta.length) throw new Error('Faltam colunas obrigatórias: '+falta.join(', ')+'. Descarregue o modelo e use os mesmos cabeçalhos.');
     const actualizar = !!(el('xl-upd') && el('xl-upd').checked), ok = [], erros = [], vistos = new Set();
-    const nomesExist = new Set(medicamentos.map(m=>(m.nome||'').trim().toLowerCase())), nids = new Set(patients.map(x=>String(x.id)));
+    const nomesExist = new Set(medicamentos.map(m=>(m.nome||'').trim().toLowerCase())), nids = new Set(patients.map(x=>String(x.id))), cbExist = new Set(medicamentos.map(m=>normCb(m.codigoBarras)).filter(Boolean)), cbVistos = new Set();
     rows.forEach((r,i)=>{
       const ln = i+2, o = {}; Object.entries(mapa).forEach(([h,k])=>{ o[k] = r[h]; });
       if(Object.values(o).every(v=>String(v==null?'':v).trim()==='')) return;
@@ -2366,6 +2404,23 @@ async function xlLer(){
           for(const n of nomes){ const e = especialidades.find(x=>xlNorm(x.nome)===xlNorm(n)); if(!e) return erro(`Especialidade "${n}" não existe (importe primeiro as especialidades).`); ids.push(e.id); }
           if(nomes.length || !existente) rec.especialidades = ids;
         }
+        if(tipo==='tratamentos'){
+          const mo = (o.maoObra===''||o.maoObra==null) ? null : xlNum(o.maoObra);
+          if(mo!==null && (isNaN(mo)||mo<0)) return erro('Mão de obra inválida.');
+          const txt = String(o.suprimentos||'').trim();
+          if(txt){
+            const linhas = [];
+            for(const parte of txt.split(';').map(x=>x.trim()).filter(Boolean)){
+              const mm = parte.match(/^(.*?)\s*[x×]\s*(\d+)$/i), nomeP = (mm?mm[1]:parte).trim(), q = mm?Number(mm[2]):1, prod = medicamentos.find(p=>xlNorm(p.nome)===xlNorm(nomeP));
+              if(!prod) return erro(`Suprimento "${nomeP}" não existe no stock (importe ou cadastre primeiro os suprimentos).`);
+              if(!(q>=1)) return erro(`Quantidade inválida em "${parte}".`);
+              if(linhas.some(l=>l.produtoId===prod.id)) return erro(`Suprimento "${prod.nome}" repetido.`);
+              linhas.push({produtoId:prod.id, nome:prod.nome, qtd:q, precoUnit:r2(prod.preco)});
+            }
+            rec.suprimentos = linhas;
+          }
+          if(mo!==null) rec.maoObra = r2(mo);
+        }
         vistos.add(ch); if(existente){ rec.id = existente.id; rec._upd = true; }
         ok.push(rec);
       } else {
@@ -2376,8 +2431,10 @@ async function xlLer(){
         if(isNaN(stock)||stock<0||isNaN(min)||min<0) return erro('Stock ou stock mínimo inválido.');
         if(val===null) return erro('Validade inválida (use AAAA-MM-DD ou DD/MM/AAAA).');
         const ch = nome.toLowerCase(); if(nomesExist.has(ch) || vistos.has(ch)) return erro(`"${nome}" já existe (não é alterado).`);
+        const cb = normCb(String(o.codigoBarras==null?'':o.codigoBarras).replace(/\.0+$/,''));
+        if(cb){ if(cbExist.has(cb) || cbVistos.has(cb)) return erro(`Código de barras ${cb} já está atribuído a outro produto.`); cbVistos.add(cb); }
         vistos.add(ch);
-        ok.push({nome, categoria:T.cat, subtipo:String(o.subtipo||'').trim()||(T.cat==='Óptica'?'Acessório':'Outro'), preco:r2(preco), precoCompra:compra===''?'':r2(compra), stock:Math.floor(stock), stockMin:Math.floor(min), validade:val||'', lote:String(o.lote||'').trim(), ativo:true});
+        ok.push({nome, categoria:T.cat, codigoBarras:cb, subtipo:String(o.subtipo||'').trim()||(T.cat==='Óptica'?'Acessório':'Outro'), preco:r2(preco), precoCompra:compra===''?'':r2(compra), stock:Math.floor(stock), stockMin:Math.floor(min), validade:val||'', lote:String(o.lote||'').trim(), ativo:true});
       }
     });
     xlState = {tipo, ok, erros};
@@ -2510,6 +2567,11 @@ function viewCaixa(){
   </div>
   ${cardContasInternamento()}`;
 }
+function compCaixaHtml(inv){
+  if(!podeVerComposicao() || inv.ordemTipo!=='tratamento') return '';
+  const o = tratamentosPrescritos.find(x=>x.id===inv.ordemId); if(!o) return '';
+  return (o.itens||[]).filter(it=>temComposicao(compDoItem(it))).map(it=>`<details style="margin-bottom:8px;"><summary style="cursor:pointer;font-size:13px;"><b>${esc(it.nome)}</b>${it.quantidade>1?' ×'+it.quantidade+' (composição por unidade)':''} — composição do preço</summary>${compHtml(compDoItem(it), it.precoRef)}</details>`).join('');
+}
 function openPagamento(invId){
   if(!['admin','recepcao'].includes(currentUser.role)) return;   // a recepção (Caixa) emite os documentos
   const inv = invoices.find(x=>x.id===invId);
@@ -2519,6 +2581,7 @@ function openPagamento(invId){
     <div class="doc-grid" style="font-size:13px;margin-bottom:12px;"><div><b>Paciente:</b> ${esc(inv.pacienteNome||'—')}</div><div><b>Tipo:</b> ${esc(pagLabel(pg))}</div></div>
     ${pg.tipo!=='individual' ? `<div class="muted-note" style="margin-bottom:12px;">${pg.cartao?'Cartão / apólice: <b>'+esc(pg.cartao)+'</b> · ':''}${pg.autorizacao?'Autorização: <b>'+esc(pg.autorizacao)+'</b> · ':''}${pg.referencia?'Referência: <b>'+esc(pg.referencia)+'</b> · ':''}Comparticipação ${pg.comparticipacao}%</div>` : ''}
     <div style="font-size:13px;margin-bottom:10px;">${esc(inv.servico)}</div>
+    ${compCaixaHtml(inv)}
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
       <div class="price-chip">Total: ${fmtMZN(inv.valor)}</div>
       ${ve>0?`<div class="price-chip" style="background:var(--primary-tint);color:var(--primary-2);">Entidade: ${fmtMZN(ve)}</div>`:''}
@@ -3187,9 +3250,186 @@ function renderRxDoc(r){
 function mfToggleSubtipo(){
   const cat = document.getElementById('mf-categoria').value;
   const sel = document.getElementById('mf-subtipo');
-  sel.innerHTML = cat==='Óptica'
-    ? ['Armação','Lente','Óculos de sol','Óculos graduados','Acessório'].map(o=>`<option>${o}</option>`).join("")
-    : ['Comprimido','Xarope','Injetável','Pomada','Outro'].map(o=>`<option>${o}</option>`).join("");
+  sel.innerHTML = (cat==='Óptica' ? ['Armação','Lente','Óculos de sol','Óculos graduados','Acessório']
+    : cat==='Suprimento' ? ['Luvas','Agulhas e seringas','Cateteres','Compressas e pensos','Soluções e desinfectantes','Outro']
+    : ['Comprimido','Xarope','Injetável','Pomada','Outro']).map(o=>`<option>${o}</option>`).join("");
+  const lab = document.getElementById('mf-preco-lab'); if(lab) lab.textContent = cat==='Suprimento' ? 'Preço unitário (MZN)' : 'Preço de venda (MZN)';
+}
+
+/* ================= CÓDIGO DE BARRAS (leitor USB/Bluetooth = teclado + Enter) ================= */
+const C128 = ["212222", "222122", "222221", "121223", "121322", "131222", "122213", "122312", "132212", "221213", "221312", "231212", "112232", "122132", "122231", "113222", "123122", "123221", "223211", "221132", "221231", "213212", "223112", "312131", "311222", "321122", "321221", "312212", "322112", "322211", "212123", "212321", "232121", "111323", "131123", "131321", "112313", "132113", "132311", "211313", "231113", "231311", "112133", "112331", "132131", "113123", "113321", "133121", "313121", "211331", "231131", "213113", "213311", "213131", "311123", "311321", "331121", "312113", "312311", "332111", "314111", "221411", "431111", "111224", "111422", "121124", "121421", "141122", "141221", "112214", "112412", "122114", "122411", "142112", "142211", "241211", "221114", "413111", "241112", "134111", "111242", "121142", "121241", "114212", "124112", "124211", "411212", "421112", "421211", "212141", "214121", "412121", "111143", "111341", "131141", "114113", "114311", "411113", "411311", "113141", "114131", "311141", "411131", "211412", "211214", "211232"];
+const C128_STOP = '2331112';
+function normCb(v){ return String(v==null?'':v).replace(/[\s\u0000-\u001f\u007f]/g,''); }
+function medByCodigo(cb){ cb = normCb(cb); return cb ? medicamentos.find(m=>normCb(m.codigoBarras)===cb) : null; }
+function beep(ok){
+  try{ const A = window.AudioContext || window.webkitAudioContext; if(!A) return; window._ac = window._ac || new A();
+    const ac = window._ac, o = ac.createOscillator(), g = ac.createGain(); o.type = ok ? 'sine' : 'square'; o.frequency.value = ok ? 1000 : 220; g.gain.value = .08; o.connect(g); g.connect(ac.destination); o.start(); o.stop(ac.currentTime + (ok ? .08 : .35)); }catch(e){}
+}
+function ean13Dv(d12){ let t = 0; for(let i=0;i<12;i++) t += Number(d12[i])*(i%2 ? 3 : 1); return (10 - t%10)%10; }
+async function novoCodigoInterno(){
+  for(let k=0;k<30;k++){ const n = await Store.nextSeq('codigo-barras', 1), base = '200'+String(n).padStart(9,'0'), c = base+ean13Dv(base); if(!medByCodigo(c)) return c; }
+  throw new Error('Não foi possível gerar um código livre.');
+}
+async function mfGerarCodigo(){
+  if(normCb(el('mf-cb').value)){ toast('⚠️ Este produto já tem código. Apague o campo se quiser gerar outro.'); return; }
+  try{ el('mf-cb').value = await novoCodigoInterno(); toast('✅ Código interno gerado. Guarde o produto e imprima a etiqueta (botão 🏷 no stock).', 5000); }catch(e){ toast('⚠️ '+e.message); }
+}
+function mfCbKey(e){   // o leitor termina com Enter: não deixa fechar nada e avança para o nome
+  if(e.key!=='Enter') return; e.preventDefault();
+  const cb = normCb(e.target.value); e.target.value = cb; if(!cb) return;
+  const editId = el('modal-medicamento').dataset.editId, outro = medicamentos.find(m=>m.id!==editId && normCb(m.codigoBarras)===cb);
+  if(outro){ beep(false); toast(`⚠️ O código ${esc(cb)} já pertence a <b>${esc(outro.nome)}</b>.`, 5000); return; }
+  beep(true); const n = el('mf-nome'); if(n && !n.value) n.focus(); else el('mf-preco').focus();
+}
+function farmScanKey(e){ if(e.key!=='Enter') return; e.preventDefault(); const cb = normCb(e.target.value); e.target.value = ''; if(cb) farmScan(cb); }
+function farmScan(cb){
+  const m = medByCodigo(cb);
+  if(m){
+    beep(true); farmFiltro.q = m.nome; const t = el('meds-tbody'); if(t) t.innerHTML = medRows(medicamentos);
+    if(!prodAtivo(m)){ toast(`⚠️ ${esc(m.nome)} está inactivo.`); return; }
+    if(['admin','farmacia'].includes(currentUser.role)) openMovStock(m.id);
+    return;
+  }
+  beep(false);
+  if(currentUser.role==='admin'){ toast(`Código ${esc(cb)} novo: preencha os dados do produto.`, 4000); openMedicamentoModal('', cb); }
+  else toast(`⚠️ Código ${esc(cb)} não cadastrado. Peça ao Administrador para cadastrar o produto.`, 5000);
+}
+function vdScanKey(e){ if(e.key!=='Enter') return; e.preventDefault(); const cb = normCb(e.target.value); e.target.value = ''; if(cb) vdAdicionarPorCodigo(cb); }
+function vdAdicionarPorCodigo(cb){
+  const m = medByCodigo(cb), falha = msg=>{ beep(false); toast('⚠️ '+msg, 4500); return false; };
+  if(!m) return falha(`Código ${esc(cb)} não cadastrado.`);
+  if(m.categoria==='Suprimento') return falha(`${esc(m.nome)} é suprimento de uso interno e não se vende ao balcão.`);
+  if(!prodAtivo(m)) return falha(`${esc(m.nome)} está inactivo.`);
+  if(prodExpirado(m)) return falha(`${esc(m.nome)} está expirado e não pode ser vendido.`);
+  const rows = [...document.querySelectorAll('.sale-row')];
+  let row = rows.find(r=>r.querySelector('select').value===m.id);
+  const atual = row ? (Number(row.querySelector('input').value)||0) : 0;
+  if(atual+1 > Number(m.stock)) return falha(`Stock insuficiente de ${esc(m.nome)} (disponível: ${m.stock}).`);
+  if(row) row.querySelector('input').value = atual+1;
+  else{
+    row = rows.find(r=>!r.querySelector('select').value);
+    if(!row){ addVendaItem(); row = [...document.querySelectorAll('.sale-row')].pop(); }
+    row.querySelector('select').value = m.id; row.querySelector('input').value = 1;
+  }
+  vdRecalc(); beep(true); toast(`✔ ${esc(m.nome)} ×${row.querySelector('input').value}`, 1200);
+  const f = el('vd-scan'); if(f) f.focus();
+  return true;
+}
+/* Code 128 (B, ou C quando só há dígitos em número par) → SVG */
+function code128Valores(txt){
+  txt = String(txt); const v = [];
+  if(/^\d{4,}$/.test(txt) && txt.length%2===0){ v.push(105); for(let i=0;i<txt.length;i+=2) v.push(Number(txt.substr(i,2))); }
+  else{ v.push(104); for(const ch of txt){ const c = ch.charCodeAt(0); if(c<32 || c>126) return null; v.push(c-32); } }
+  let t = v[0]; for(let i=1;i<v.length;i++) t += v[i]*i; v.push(t%103); return v;
+}
+function code128Svg(txt){
+  const v = code128Valores(txt); if(!v) return '';
+  const pad = v.map(x=>C128[x]).concat([C128_STOP]).join(''); let x = 10, bars = '';
+  for(let i=0;i<pad.length;i++){ const w = Number(pad[i]); if(i%2===0) bars += `<rect x="${x}" y="0" width="${w}" height="40"/>`; x += w; }
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${x+10} 40" preserveAspectRatio="none" fill="#000" style="width:100%;height:11mm;display:block;">${bars}</svg>`;
+}
+async function openEtiqueta(id){
+  const m = medById(id); if(!m || !['admin','farmacia'].includes(currentUser.role)) return;
+  if(!normCb(m.codigoBarras)){
+    if(currentUser.role!=='admin'){ toast('⚠️ Este produto ainda não tem código de barras. O Administrador pode gerá-lo em "Editar".', 5000); return; }
+    try{ const c = await novoCodigoInterno(); await Store.setDoc('medicamentos', m.id, {codigoBarras:c}); m.codigoBarras = c; toast('Código interno gerado para este produto.'); }catch(e){ toast('⚠️ '+e.message); return; }
+  }
+  el('modal-etiqueta').dataset.id = id; el('eq-copias').value = 1;
+  el('eq-info').innerHTML = `<b>${esc(m.nome)}</b><div class="cell-sub">Código: ${esc(m.codigoBarras)}</div>`;
+  openModal('modal-etiqueta');
+}
+function etiquetasHtml(m, n){
+  const um = `<div style="width:50mm;height:28mm;border:1px dashed #999;padding:1.5mm;box-sizing:border-box;page-break-inside:avoid;font-family:Arial,sans-serif;text-align:center;overflow:hidden;"><div style="font-size:8.5pt;font-weight:700;line-height:1.1;max-height:8mm;overflow:hidden;">${esc(m.nome)}</div>${m.categoria==='Suprimento'?'':`<div style="font-size:9pt;">${fmtMZN(m.preco)}</div>`}<div style="margin:1mm 0;">${code128Svg(m.codigoBarras)}</div><div style="font-size:7.5pt;letter-spacing:1px;">${esc(m.codigoBarras)}</div></div>`;
+  return `<div style="display:flex;flex-wrap:wrap;gap:3mm;">${um.repeat(n)}</div>`;
+}
+function imprimirEtiquetas(){
+  const m = medById(el('modal-etiqueta').dataset.id), n = Math.min(200, Math.max(1, Math.floor(Number(el('eq-copias').value)||1)));
+  if(!m || !normCb(m.codigoBarras)) return;
+  closeModal('modal-etiqueta'); printDoc(etiquetasHtml(m, n)); audit('etiquetas', 'Stock', m.nome, `${n} etiqueta(s) impressas`);
+}
+
+/* ================= COMPOSIÇÃO DO PREÇO (suprimentos + mão de obra) — só Administrador e Recepção/Caixa ================= */
+function podeVerComposicao(){ return !!currentUser && ['admin','recepcao'].includes(currentUser.role); }
+function compTotais(c){
+  const sup = r2((c.suprimentos||[]).reduce((t,x)=>t+(Number(x.precoUnit)||0)*(Number(x.qtd)||0), 0)), mo = r2(Number(c.maoObra)||0);
+  return {sup, mo, total:r2(sup+mo)};
+}
+function compDoItem(it){ return (it && (it.suprimentos!==undefined || it.maoObra!==undefined)) ? it : (tratamentos.find(t=>t.id===(it&&it.catId)) || {}); }
+function temComposicao(c){ return !!((c.suprimentos||[]).length || Number(c.maoObra)); }
+function compHtml(c, preco){
+  if(!podeVerComposicao()) return '';
+  if(!temComposicao(c)) return '<div class="cell-sub">Sem composição registada para este item.</div>';
+  const t = compTotais(c), dif = preco===undefined ? null : r2(Number(preco)-t.total);
+  return `<div class="table-wrap"><table><thead><tr><th>Suprimento</th><th>Qtd</th><th>Preço unit.</th><th style="text-align:right;">Subtotal</th></tr></thead><tbody>
+    ${(c.suprimentos||[]).map(x=>`<tr><td>${esc(x.nome)}</td><td>${x.qtd}</td><td>${fmtMZN(x.precoUnit)}</td><td style="text-align:right;">${fmtMZN(r2((Number(x.precoUnit)||0)*(Number(x.qtd)||0)))}</td></tr>`).join('')}
+    <tr><td colspan="3"><b>Total de suprimentos</b></td><td style="text-align:right;"><b>${fmtMZN(t.sup)}</b></td></tr>
+    <tr><td colspan="3">Mão de obra</td><td style="text-align:right;">${fmtMZN(t.mo)}</td></tr>
+    <tr><td colspan="3"><b>Composição total</b></td><td style="text-align:right;"><b>${fmtMZN(t.total)}</b></td></tr>
+    ${dif===null?'':`<tr><td colspan="3">Preço de venda</td><td style="text-align:right;">${fmtMZN(preco)}${Math.abs(dif)>0.009?` <span class="cell-sub">(diferença ${fmtMZN(dif)})</span>`:''}</td></tr>`}</tbody></table></div>`;
+}
+function resumoComp(c){ if(!temComposicao(c)) return '<span class="cell-sub">—</span>'; const t = compTotais(c); return `<span class="cell-sub">Suprim. ${fmtMZN(t.sup)} · M.O. ${fmtMZN(t.mo)}</span>`; }
+function openComposicao(id){
+  if(!podeVerComposicao()) return;
+  const t = tratamentos.find(x=>x.id===id); if(!t) return;
+  el('cp-title').textContent = 'Composição: '+t.nome;
+  el('cp-body').innerHTML = compHtml(t, t.preco);
+  openModal('modal-composicao');
+}
+/* linhas de suprimentos no formulário do catálogo */
+function supOpcoesHtml(sel){
+  const at = medicamentos.filter(m=>prodAtivo(m) && m.categoria!=='Óptica');
+  const g = (tit, l)=> l.length ? `<optgroup label="${tit}">${l.map(m=>`<option value="${m.id}" data-preco="${r2(m.preco)}" ${m.id===sel?'selected':''}>${esc(m.nome)}</option>`).join('')}</optgroup>` : '';
+  return g('Suprimentos', at.filter(m=>m.categoria==='Suprimento')) + g('Medicamentos', at.filter(m=>m.categoria!=='Suprimento'));
+}
+function catAddSup(l){
+  const d = document.createElement('div'); d.className = 'sup-row'; d.style.cssText = 'display:grid;grid-template-columns:1.6fr .45fr .7fr .7fr auto;gap:6px;align-items:center;margin-bottom:6px;font-size:12.5px;';
+  d.innerHTML = `<select onchange="catSupEscolhido(this)">${supOpcoesHtml(l&&l.produtoId) || '<option value="">— sem suprimentos no stock —</option>'}</select><input type="number" min="1" step="1" value="${l?l.qtd:1}" oninput="catCompResumo()" title="Quantidade"><input type="number" min="0" step="any" value="${l?l.precoUnit:''}" oninput="catCompResumo()" title="Preço unitário (MZN)"><span class="cell-sub sup-sub">—</span><button class="btn sm ghost" type="button" onclick="this.parentElement.remove();catCompResumo()">✕</button>`;
+  el('cat-sup-rows').appendChild(d);
+  if(!l) catSupEscolhido(d.querySelector('select')); else catCompResumo();
+}
+function catSupEscolhido(sel){ const o = sel.options[sel.selectedIndex], row = sel.parentElement; if(o && o.dataset.preco!==undefined) row.children[2].value = o.dataset.preco; catCompResumo(); }
+function catLerComp(){
+  const lista = [], vistos = new Set();
+  for(const row of document.querySelectorAll('#cat-sup-rows .sup-row')){
+    const sel = row.querySelector('select'), prod = medById(sel.value), q = Math.floor(Number(row.children[1].value)||0), pu = Number(row.children[2].value);
+    if(!prod) continue;
+    if(q<1) return {erro:`Indique a quantidade de ${prod.nome}.`};
+    if(isNaN(pu) || pu<0) return {erro:`Preço unitário inválido em ${prod.nome}.`};
+    if(vistos.has(prod.id)) return {erro:`${prod.nome} aparece duas vezes (some as quantidades numa só linha).`};
+    vistos.add(prod.id); lista.push({produtoId:prod.id, nome:prod.nome, qtd:q, precoUnit:r2(pu)});
+  }
+  const mo = el('cat-mo').value==='' ? 0 : Number(el('cat-mo').value);
+  if(isNaN(mo) || mo<0) return {erro:'Mão de obra inválida.'};
+  return {suprimentos:lista, maoObra:r2(mo)};
+}
+function catCompResumo(){
+  let sup = 0;
+  document.querySelectorAll('#cat-sup-rows .sup-row').forEach(row=>{ const s = r2((Number(row.children[1].value)||0)*(Number(row.children[2].value)||0)); row.querySelector('.sup-sub').textContent = fmtMZN(s); sup += s; });
+  const mo = Number(el('cat-mo').value)||0, preco = Number(el('cat-preco').value)||0, tot = r2(sup+mo), dif = r2(preco-tot);
+  el('cat-comp-resumo').innerHTML = `Suprimentos <b>${fmtMZN(r2(sup))}</b> + Mão de obra <b>${fmtMZN(mo)}</b> = <b>${fmtMZN(tot)}</b>` + (preco>0 ? (Math.abs(dif)<0.01 ? ' · <span style="color:var(--ok);">coincide com o preço</span>' : ` · preço de venda ${fmtMZN(preco)} (diferença <b>${fmtMZN(dif)}</b>)`) : '');
+}
+function catMoAuto(){
+  let sup = 0; document.querySelectorAll('#cat-sup-rows .sup-row').forEach(row=>{ sup += (Number(row.children[1].value)||0)*(Number(row.children[2].value)||0); });
+  const preco = Number(el('cat-preco').value)||0; if(!(preco>0)){ toast('⚠️ Indique primeiro o preço do procedimento.'); return; }
+  if(preco < sup){ toast('⚠️ Os suprimentos já excedem o preço do procedimento.'); return; }
+  el('cat-mo').value = r2(preco-sup); catCompResumo();
+}
+/* Preçário com composição para a Recepção / Caixa (só leitura) */
+function viewPrecario(){
+  return `<div class="page-head"><div><h1>Preçário e composição</h1><div class="desc">Preço de cada tratamento e procedimento e como se compõe: suprimentos (quantidade e preço unitário) e mão de obra. Só leitura.</div></div></div>
+  <div class="card"><div class="toolbar"><input type="text" class="grow" placeholder="Pesquisar tratamento ou procedimento…" oninput="el('prec-tbody').innerHTML=precarioRows(this.value)"></div>
+  <div class="table-wrap"><table><thead><tr><th>Item</th><th>Categoria</th><th>Preço</th><th>Composição</th><th></th></tr></thead><tbody id="prec-tbody">${precarioRows('')}</tbody></table></div></div>`;
+}
+function precarioRows(q){
+  q = (q||'').toLowerCase();
+  const l = tratamentos.filter(t=>!q || (t.nome||'').toLowerCase().includes(q));
+  return l.map(t=>`<tr><td class="cell-name">${esc(t.nome)}</td><td><span class="tag grey">${esc(t.categoria||'Tratamento')}</span></td><td><b>${fmtMZN(t.preco)}</b></td><td>${resumoComp(t)}</td><td>${temComposicao(t)?`<button class="btn sm ghost" onclick="openComposicao('${t.id}')">Ver detalhe</button>`:''}</td></tr>`).join('') || '<tr><td colspan="5"><div class="empty">Sem itens.</div></td></tr>';
+}
+/* suprimentos a baixar do stock quando uma ordem é concluída (soma por produto) */
+function baixasDaOrdem(o){
+  const mapa = {};
+  (o.itens||[]).forEach(it=>{ const c = compDoItem(it), q = Number(it.quantidade)||1; (c.suprimentos||[]).forEach(x=>{ const a = mapa[x.produtoId] || (mapa[x.produtoId] = {produtoId:x.produtoId, nome:x.nome, qtd:0}); a.qtd += (Number(x.qtd)||0)*q; }); });
+  return Object.values(mapa).filter(x=>x.qtd>0);
 }
 /* ================= FARMÁCIA E STOCK (gestão) ================= */
 function prodAtivo(m){ return m.ativo!==false; }
@@ -3222,27 +3462,28 @@ function farmStock(admin){
   ${alerta(baixo.length, 'produto(s) abaixo do stock mínimo: '+baixo.map(m=>esc(m.nome)).join(', '), 'danger')}
   ${alerta(aexp.length, 'produto(s) a expirar nos próximos 60 dias: '+aexp.map(m=>esc(m.nome)+' ('+fmtDate(m.validade)+')').join(', '), 'warn')}
   <div class="card"><h3>Stock de produtos</h3>
-    <div class="toolbar"><input type="text" class="grow" placeholder="Pesquisar produto…" value="${esc(farmFiltro.q)}" oninput="farmFiltro.q=this.value;filterMeds(this.value)">
+    <div class="toolbar"><input id="farm-scan" type="text" autocomplete="off" style="max-width:260px;" placeholder="📟 Ler código de barras…" title="Aponte o leitor: abre o produto (para dar entrada de stock) ou, se for novo, o formulário de cadastro" onkeydown="farmScanKey(event)">
+      <input type="text" class="grow" placeholder="Pesquisar produto ou código…" value="${esc(farmFiltro.q)}" oninput="farmFiltro.q=this.value;filterMeds(this.value)">
       <label style="font-size:12.5px;display:flex;gap:6px;align-items:center;"><input type="checkbox" ${farmFiltro.inativos?'checked':''} onchange="farmFiltro.inativos=this.checked;render()"> Mostrar inactivos</label></div>
     <div class="table-wrap"><table><thead><tr><th>Produto</th><th>Categoria</th><th>Compra</th><th>Venda</th><th>Stock</th><th>Validade</th><th>Estado</th><th></th></tr></thead>
     <tbody id="meds-tbody">${medRows(medicamentos)}</tbody></table></div></div>`;
 }
 function medRows(list){
   const admin = currentUser.role==='admin', q = (farmFiltro.q||'').toLowerCase();
-  list = list.filter(m=>(farmFiltro.inativos || prodAtivo(m)) && (!q || (m.nome||'').toLowerCase().includes(q)));
+  list = list.filter(m=>(farmFiltro.inativos || prodAtivo(m)) && (!q || (m.nome||'').toLowerCase().includes(q) || String(m.codigoBarras||'').toLowerCase().includes(q)));
   if(!list.length) return `<tr><td colspan="8"><div class="empty">Nenhum produto cadastrado.</div></td></tr>`;
   return list.map(m=>{
     const [est, cor] = prodEstado(m);
-    return `<tr><td class="cell-name">${esc(m.nome)}<div class="cell-sub">${esc(m.subtipo||'')}${m.lote?' · lote '+esc(m.lote):''}</div></td>
-      <td><span class="tag ${m.categoria==='Óptica'?'blue':'grey'}">${esc(m.categoria)}</span></td>
+    return `<tr><td class="cell-name">${esc(m.nome)}<div class="cell-sub">${esc(m.subtipo||'')}${m.lote?' · lote '+esc(m.lote):''}${m.codigoBarras?' · 🏷 '+esc(m.codigoBarras):''}</div></td>
+      <td><span class="tag ${m.categoria==='Óptica'?'blue':m.categoria==='Suprimento'?'amber':'grey'}">${esc(m.categoria)}</span></td>
       <td>${m.precoCompra!==undefined&&m.precoCompra!==''?fmtMZN(m.precoCompra):'—'}</td><td>${fmtMZN(m.preco)}</td><td><b>${m.stock}</b> <span class="cell-sub">/ mín ${m.stockMin}</span></td>
       <td class="cell-sub">${m.validade?fmtDate(m.validade):'—'}</td><td><span class="tag ${cor}">${est}</span></td>
-      <td style="white-space:nowrap;"><button class="btn sm" onclick="openMovStock('${m.id}')">Movimento</button><button class="btn sm ghost" onclick="movFiltro.q='${esc(m.nome).replace(/'/g,'')}';farmSetTab('movimentos')">Histórico</button>
+      <td style="white-space:nowrap;"><button class="btn sm" onclick="openMovStock('${m.id}')">Movimento</button><button class="btn sm ghost" onclick="movFiltro.q='${esc(m.nome).replace(/'/g,'')}';farmSetTab('movimentos')">Histórico</button><button class="btn sm ghost" title="Imprimir etiquetas com código de barras" onclick="openEtiqueta('${m.id}')">🏷</button>
         ${admin?`<button class="btn sm ghost" onclick="openMedicamentoModal('${m.id}')">Editar</button><button class="btn sm" onclick="toggleMedicamento('${m.id}')">${prodAtivo(m)?'Desactivar':'Reactivar'}</button>`:''}</td></tr>`;
   }).join("");
 }
 function filterMeds(q){ farmFiltro.q = q; el('meds-tbody').innerHTML = medRows(medicamentos); }
-function openMedicamentoModal(id){
+function openMedicamentoModal(id, cbInicial){
   if(currentUser.role!=='admin') return;
   const m = id ? medById(id) : null;
   el('med-modal-title').textContent = m ? "Editar produto" : "Novo produto";
@@ -3254,7 +3495,9 @@ function openMedicamentoModal(id){
   el('mf-preco').value = m ? m.preco : 0; el('mf-compra').value = m && m.precoCompra!==undefined ? m.precoCompra : '';
   el('mf-stock').value = m ? m.stock : 0; el('mf-stock').disabled = !!m; el('mf-stock-nota').style.display = m ? '' : 'none';
   el('mf-min').value = m ? m.stockMin : 5; el('mf-validade').value = m ? (m.validade||'') : ''; el('mf-lote').value = m ? (m.lote||'') : '';
+  el('mf-cb').value = m ? (m.codigoBarras||'') : (cbInicial||'');
   openModal('modal-medicamento');
+  setTimeout(()=>{ const f = el(cbInicial ? 'mf-nome' : (m ? 'mf-nome' : 'mf-cb')); if(f) f.focus(); }, 60);
 }
 async function saveMedicamento(){
   if(currentUser.role!=='admin') return;
@@ -3264,7 +3507,9 @@ async function saveMedicamento(){
   if(preco<0 || (compra!=='' && compra<0)){ toast("⚠️ Os preços não podem ser negativos."); return; }
   const editId = el('modal-medicamento').dataset.editId;
   if(medicamentos.some(m=>m.id!==editId && (m.nome||'').trim().toLowerCase()===nome.toLowerCase())){ toast("⚠️ Já existe um produto com este nome."); return; }
-  const data = {nome, categoria:el('mf-categoria').value, subtipo:el('mf-subtipo').value, preco, precoCompra:compra, stockMin:Number(el('mf-min').value)||0, validade:el('mf-validade').value, lote:el('mf-lote').value.trim()};
+  const cb = normCb(el('mf-cb').value), outro = cb ? medicamentos.find(m=>m.id!==editId && normCb(m.codigoBarras)===cb) : null;
+  if(outro){ toast(`⚠️ O código de barras ${esc(cb)} já está atribuído a <b>${esc(outro.nome)}</b>.`, 5000); return; }
+  const data = {nome, categoria:el('mf-categoria').value, subtipo:el('mf-subtipo').value, preco, precoCompra:compra, stockMin:Number(el('mf-min').value)||0, validade:el('mf-validade').value, lote:el('mf-lote').value.trim(), codigoBarras:cb};
   if(editId){ await Store.setDoc('medicamentos', editId, data); }
   else{
     const inicial = Number(el('mf-stock').value)||0;
@@ -3343,7 +3588,9 @@ function openVendaModal(){
   el('vd-items').innerHTML = ""; vendaCounter = 0;
   addVendaItem();
   pmReset('vd-pm');
+  el('vd-scan').value = '';
   openModal('modal-venda');
+  setTimeout(()=>{ const f = el('vd-scan'); if(f) f.focus(); }, 60);
 }
 function vdAutoPagador(){
   const nid = el('vd-paciente').value;
@@ -3391,7 +3638,7 @@ function vdPagador(){
 function vdPrecoItem(m, pg){ return precoContratual(entidadeDoPagador(pg), m.categoria==='Óptica' ? 'optica' : 'medicamento', m.id, m.preco); }
 function vdOptionsHtml(){
   const pg = vdPagador().pagador || {tipo:'individual'};
-  return medicamentos.filter(m=>prodAtivo(m) && !prodExpirado(m)).map(m=>{ const pr = vdPrecoItem(m, pg); return `<option value="${m.id}" data-preco="${pr}" data-ref="${r2(m.preco)}" data-stock="${m.stock}">${esc(m.nome)} (${fmtMZN(pr)}, stock ${m.stock})</option>`; }).join('') || '<option value="">Sem produtos cadastrados</option>';
+  return '<option value="" data-preco="0" data-ref="0" data-stock="0">— Seleccione o produto —</option>' + medicamentos.filter(m=>prodAtivo(m) && !prodExpirado(m) && m.categoria!=='Suprimento').map(m=>{ const pr = vdPrecoItem(m, pg); return `<option value="${m.id}" data-preco="${pr}" data-ref="${r2(m.preco)}" data-stock="${m.stock}">${esc(m.nome)} (${fmtMZN(pr)}, stock ${m.stock})</option>`; }).join('') || '<option value="">Sem produtos cadastrados</option>';
 }
 function vdRefreshPrecos(){
   document.querySelectorAll('.sale-row').forEach(row=>{
@@ -4405,14 +4652,14 @@ function viewCatalogo(tipo){
     <div class="toolbar"><input id="cat-search" type="text" class="grow" placeholder="Pesquisar ${c.singular}…" oninput="filterCatalogo('${tipo}',this.value)">
       <select onchange="catEspFiltro=this.value;filterCatalogo('${tipo}',el('cat-search').value)"><option value="">Todas as especialidades</option>${especialidades.map(e=>`<option value="${e.id}" ${catEspFiltro===e.id?'selected':''}>${esc(e.nome)}</option>`).join('')}</select></div>
     <div class="table-wrap"><table>
-      <thead><tr><th>${isT?'Tratamento / procedimento':'Exame'}</th>${isT?'<th>Categoria</th>':''}<th>Especialidades</th><th>Preço</th><th></th></tr></thead>
+      <thead><tr><th>${isT?'Tratamento / procedimento':'Exame'}</th>${isT?'<th>Categoria</th>':''}<th>Especialidades</th><th>Preço</th>${isT?'<th>Composição</th>':''}<th></th></tr></thead>
       <tbody id="cat-tbody">${catalogoRows(tipo, c.lista())}</tbody>
     </table></div>
   </div>`;
 }
 function catalogoRows(tipo, lista){
-  if(!lista.length) return `<tr><td colspan="5"><div class="empty">${tipo==='tratamento'?'Nenhum tratamento cadastrado.':'Nenhum exame cadastrado.'} Use o botão "+ Novo" para começar o preçário.</div></td></tr>`;
-  return lista.map(i=>`<tr><td class="cell-name">${esc(i.nome)}</td>${tipo==='tratamento'?`<td><span class="tag grey">${esc(i.categoria||'Tratamento')}</span></td>`:''}<td class="cell-sub">${espNomes(i)}</td><td><b>${fmtMZN(i.preco)}</b></td><td style="white-space:nowrap;">
+  if(!lista.length) return `<tr><td colspan="6"><div class="empty">${tipo==='tratamento'?'Nenhum tratamento cadastrado.':'Nenhum exame cadastrado.'} Use o botão "+ Novo" para começar o preçário.</div></td></tr>`;
+  return lista.map(i=>`<tr><td class="cell-name">${esc(i.nome)}</td>${tipo==='tratamento'?`<td><span class="tag grey">${esc(i.categoria||'Tratamento')}</span></td>`:''}<td class="cell-sub">${espNomes(i)}</td><td><b>${fmtMZN(i.preco)}</b></td>${tipo==='tratamento'?`<td>${resumoComp(i)}${temComposicao(i)?` <button class="btn sm ghost" onclick="openComposicao('${i.id}')">Detalhe</button>`:''}</td>`:''}<td style="white-space:nowrap;">
     <button class="btn sm ghost" onclick="openCatalogo('${tipo}','${i.id}')">Editar</button>
     <button class="btn sm danger" onclick="deleteCatalogo('${tipo}','${i.id}')">Apagar</button></td></tr>`).join("");
 }
@@ -4430,6 +4677,9 @@ function openCatalogo(tipo, id){
   el('cat-nome').value = item ? item.nome : '';
   el('cat-preco').value = item ? item.preco : '';
   el('cat-categoria-box').style.display = tipo==='tratamento' ? '' : 'none'; el('cat-categoria').value = item && item.categoria ? item.categoria : 'Tratamento';
+  el('cat-comp-box').style.display = tipo==='tratamento' ? '' : 'none';
+  el('cat-sup-rows').innerHTML = ''; el('cat-mo').value = item && item.maoObra ? item.maoObra : '';
+  if(tipo==='tratamento'){ ((item && item.suprimentos) || []).forEach(l=>catAddSup(l)); catCompResumo(); }
   const sel = (item && item.especialidades) || [];
   el('cat-esp-list').innerHTML = especialidades.map(e=>`<label style="display:flex;gap:5px;align-items:center;font-size:13px;"><input type="checkbox" class="cat-esp-cb" value="${e.id}" ${sel.includes(e.id)?'checked':''}> ${esc(e.nome)}</label>`).join('') || '<span class="cell-sub">Ainda não há especialidades.</span>';
   openModal('modal-catalogo');
@@ -4440,7 +4690,7 @@ async function saveCatalogo(){
   if(!nome){ toast("⚠️ Indique o nome."); return; }
   if(!(preco>0)){ toast("⚠️ Indique o preço (maior que zero)."); return; }
   if(c.lista().some(i=>i.id!==editId && (i.nome||'').trim().toLowerCase()===nome.toLowerCase())){ toast("⚠️ Já existe um item com este nome."); return; }
-  const dados = {nome, preco, especialidades:[...document.querySelectorAll('.cat-esp-cb:checked')].map(c=>c.value)}; if(tipo==='tratamento') dados.categoria = el('cat-categoria').value;
+  const dados = {nome, preco, especialidades:[...document.querySelectorAll('.cat-esp-cb:checked')].map(c=>c.value)}; if(tipo==='tratamento'){ dados.categoria = el('cat-categoria').value; const cp = catLerComp(); if(cp.erro){ toast('⚠️ '+cp.erro); return; } dados.suprimentos = cp.suprimentos; dados.maoObra = cp.maoObra; }
   if(editId) await Store.setDoc(c.col, editId, dados); else await Store.addDoc(c.col, dados);
   closeModal('modal-catalogo');
   toast(`✅ ${tipo==='tratamento'?'Tratamento':'Exame'} guardado.`);
@@ -4521,7 +4771,7 @@ async function confirmOrdem(){
   document.querySelectorAll('#ordem-items .ord-row').forEach(row=>{
     const c = cat.find(x=>x.id===row.querySelector('select').value), qi = row.querySelector('input');
     const q = qi ? Math.floor(Number(qi.value)||0) : 1;
-    if(c && q>0){ const pu = precoContratual(ent, tipo, c.id, c.preco); itens.push({catId:c.id, nome:c.nome, precoRef:r2(c.preco), precoUnit:pu, quantidade:q, subtotal:r2(pu*q)}); }
+    if(c && q>0){ const pu = precoContratual(ent, tipo, c.id, c.preco); itens.push({catId:c.id, nome:c.nome, precoRef:r2(c.preco), precoUnit:pu, quantidade:q, subtotal:r2(pu*q), ...((isT && temComposicao(c)) ? {suprimentos:(c.suprimentos||[]).map(x=>({produtoId:x.produtoId, nome:x.nome, qtd:x.qtd, precoUnit:x.precoUnit})), maoObra:Number(c.maoObra)||0} : {})}); }
   });
   if(!itens.length){ toast(isT ? (isProc ? "⚠️ Adicione pelo menos um procedimento." : "⚠️ Adicione pelo menos um tratamento.") : "⚠️ Adicione pelo menos um exame."); return; }
   if(ext && ext.novo && !nid){   // paciente novo referido: regista-o agora que o pedido está confirmado
@@ -4655,8 +4905,18 @@ async function iniciarTratamento(id){
 async function concluirTratamento(id){
   const o = tratamentosPrescritos.find(x=>x.id===id);
   if(!o || !podeGerirOrdem(o) || o.estado!=='Em curso') return;
-  await Store.setDoc('tratamentosPrescritos', id, {estado:'Concluído', concluidoEm:new Date().toISOString(), concluidoPor:currentUser.nome});
-  toast("✅ Tratamento concluído.");
+  try{ await Store.claim('tratamentosPrescritos', id, 'estado', 'Em curso', 'Concluído'); }catch(e){ toast("⚠️ Este tratamento já foi concluído."); return; }
+  const baixas = baixasDaOrdem(o); let semBaixa = false;
+  if(baixas.length){
+    try{ await Store.takeStock(baixas.map(x=>({id:x.produtoId, qtd:x.qtd, nome:x.nome})), {tipo:'Material', ref:o.numero||id, motivo:`Suprimentos de ${o.itens.map(i=>i.nome).join(', ')} (${o.pacienteNome})`}); }
+    catch(e){
+      if(e.produto && confirm(`Stock insuficiente de ${e.produto} (disponível: ${e.disponivel}).\n\nConcluir mesmo assim, SEM baixar o stock dos suprimentos? (O administrador deve acertar o stock depois.)`)){ semBaixa = true; }
+      else{ await Store.setDoc('tratamentosPrescritos', id, {estado:'Em curso'}); toast(e.produto ? `⚠️ Stock insuficiente de ${esc(e.produto)} (disponível: ${e.disponivel}). Conclusão cancelada.` : "⚠️ Não foi possível actualizar o stock. Tente de novo.", 6000); return; }
+    }
+  }
+  await Store.setDoc('tratamentosPrescritos', id, {concluidoEm:new Date().toISOString(), concluidoPor:currentUser.nome, suprimentosUsados: semBaixa ? [] : baixas, suprimentosSemBaixa: semBaixa});
+  if(semBaixa) audit('conclusao_sem_baixa_stock', 'Tratamento', o.numero||id, 'Concluído sem baixar o stock de suprimentos');
+  toast(baixas.length && !semBaixa ? "✅ Tratamento concluído. Suprimentos baixados do stock." : "✅ Tratamento concluído.");
 }
 function openResultados(id){
   const o = pedidosExame.find(x=>x.id===id);
@@ -5407,7 +5667,7 @@ async function savePrescCardex(){
   if(!med || !dose || !inicio || dias<1){ toast("⚠️ Preencha medicamento, dose, início e duração."); return; }
   if(cardex.some(c=>c.internamentoId===i.id && c.estado==='Activa' && c.medicamento.toLowerCase()===med.toLowerCase()) && !confirm(`${med} já está prescrito e activo neste internamento. Prescrever mesmo assim (possível duplicação)?`)) return;
   const fim = fmtLocal(new Date(new Date(inicio).getTime()+dias*86400000));
-  const prod = medicamentos.find(m=>m.nome.toLowerCase()===med.toLowerCase() && m.categoria!=='Óptica' && m.ativo!==false);
+  const prod = medicamentos.find(m=>m.nome.toLowerCase()===med.toLowerCase() && m.categoria!=='Óptica' && m.categoria!=='Suprimento' && m.ativo!==false);
   if(!prod && !confirm(`"${med}" não está no stock da farmácia: a administração não dará baixa de stock nem será facturada. Prescrever mesmo assim?`)) return;
   await Store.addDoc('cardex', {internamentoId:i.id, pacienteNid:i.pacienteNid, produtoId:prod?prod.id:'', qtdPorDose:Math.max(1, Number(el('ip-qtd').value)||1), medicamento:med, dose, via:el('ip-via').value, frequenciaHoras:freq, inicioEm:inicio, duracaoDias:dias, fimEm:fim,
     observacoes:el('ip-obs').value.trim(), prescritorId:currentUser.id, prescritor:currentUser.nome, estado:'Activa', criadoEm:new Date().toISOString()});
@@ -5867,11 +6127,14 @@ function openExecTrat(id){
   el('modal-exec-trat').dataset.id = id;
   el('et-info').innerHTML = `<b>${esc(t.nome)}</b> · ${esc(i.pacienteNome)} · ${esc(i.camaNome||'')}`;
   el('et-data').value = fmtLocal(new Date()); el('et-qtd').value = t.quantidade; el('et-obs').value = ''; el('et-mats').innerHTML = '';
+  const cat0 = tratamentos.find(x=>x.id===t.catId), sup0 = (cat0 && cat0.suprimentos) || [];
+  sup0.forEach(x=>addMatRow(x.produtoId, x.qtd*(Number(t.quantidade)||1), true)); el('et-mats-nota').style.display = sup0.length ? '' : 'none';
   openModal('modal-exec-trat');
 }
-function addMatRow(){
-  const d = document.createElement('div'); d.className = 'plano-row'; d.style.gridTemplateColumns = '1.6fr .6fr auto';
+function addMatRow(prodId, qtd, inc){
+  const d = document.createElement('div'); d.className = 'plano-row'; d.style.gridTemplateColumns = '1.6fr .6fr auto'; if(inc) d.dataset.inc = '1';
   d.innerHTML = `<select>${medicamentos.filter(m=>m.ativo!==false).map(m=>`<option value="${m.id}">${esc(m.nome)} (stock ${m.stock})</option>`).join('') || '<option value="">— sem produtos —</option>'}</select><input type="number" min="1" value="1"><button class="btn sm ghost" onclick="this.parentElement.remove()">✕</button>`;
+  if(prodId) d.querySelector('select').value = prodId; if(qtd) d.querySelector('input').value = qtd;
   el('et-mats').appendChild(d);
 }
 async function confirmExecTrat(){
@@ -5883,7 +6146,7 @@ async function confirmExecTrat(){
   const mats = [];
   for(const row of document.querySelectorAll('#et-mats .plano-row')){
     const prod = medById(row.querySelector('select').value), qq = Math.floor(Number(row.querySelector('input').value)||0);
-    if(prod && qq>0) mats.push({produtoId:prod.id, nome:prod.nome, qtd:qq, preco:prod.preco});
+    if(prod && qq>0) mats.push({produtoId:prod.id, nome:prod.nome, qtd:qq, preco:prod.preco, inc:row.dataset.inc==='1'});
   }
   const prev = t.estado;
   try{ await Store.claim('tratamentosInt', t.id, 'estado', prev, 'Realizado'); }catch(e){ closeModal('modal-exec-trat'); toast("⚠️ Este tratamento já foi registado como executado."); return; }
@@ -5894,8 +6157,8 @@ async function confirmExecTrat(){
   const dia = diaLocalDe(new Date(quando).toISOString());
   try{ await lancarConta(i, {id:t.id+'_T', tipo:'Tratamento', cat:'tratamento', itemId:t.catId, descricao:t.nome+(q>1?' ×'+q:''), quantidade:q, precoRef:t.precoRef, ref:t.id, prescritor:t.prescritor, executor:currentUser.nome, data:dia}); }catch(e){ /* já lançado */ }
   let k = 0;
-  for(const x of mats){ try{ await lancarConta(i, {id:t.id+'_M'+(k++), tipo:'Material', cat:'medicamento', covCat:'tratamento', itemId:x.produtoId, descricao:`${x.nome} ×${x.qtd} (material de ${t.nome})`, quantidade:x.qtd, precoRef:x.preco, ref:t.id, prescritor:t.prescritor, executor:currentUser.nome, data:dia}); }catch(e){ /* já lançado */ } }
-  await Store.setDoc('tratamentosInt', t.id, {executorId:currentUser.id, executor:currentUser.nome, realizadoEm:new Date(quando).toISOString(), quantidadeExecutada:q, materiais:mats.map(x=>({produtoId:x.produtoId, nome:x.nome, qtd:x.qtd})), obsExecucao:el('et-obs').value.trim()});
+  for(const x of mats){ if(x.inc){ k++; continue; } try{ await lancarConta(i, {id:t.id+'_M'+(k++), tipo:'Material', cat:'medicamento', covCat:'tratamento', itemId:x.produtoId, descricao:`${x.nome} ×${x.qtd} (material de ${t.nome})`, quantidade:x.qtd, precoRef:x.preco, ref:t.id, prescritor:t.prescritor, executor:currentUser.nome, data:dia}); }catch(e){ /* já lançado */ } }
+  await Store.setDoc('tratamentosInt', t.id, {executorId:currentUser.id, executor:currentUser.nome, realizadoEm:new Date(quando).toISOString(), quantidadeExecutada:q, materiais:mats.map(x=>({produtoId:x.produtoId, nome:x.nome, qtd:x.qtd, incluidoNoPreco:!!x.inc})), obsExecucao:el('et-obs').value.trim()});
   await planoHist(i, 'Tratamento realizado', `${t.nome} ×${q} por ${currentUser.nome}`);
   closeModal('modal-exec-trat');
   toast("✅ Execução registada e lançada na conta do internamento.");
