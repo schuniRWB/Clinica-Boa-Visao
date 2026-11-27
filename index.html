@@ -475,6 +475,7 @@ tbody tr:last-child td{border-bottom:none;}
         <div class="field"><label>Perfil</label><select id="uf-role" onchange="ufRoleChanged()"></select></div>
       </div>
       <div class="field" id="uf-esp-box" style="display:none;"><label>Especialidade do médico *</label><select id="uf-esp"></select></div>
+      <div class="field" id="uf-tel-box" style="display:none;"><label>Telemóvel do médico (para o aviso das consultas por SMS / WhatsApp)</label><input id="uf-tel" type="tel" inputmode="tel" placeholder="84 123 4567" autocomplete="off"></div>
       <div class="field"><label id="uf-email-label">Email</label><input id="uf-email" type="email" autocapitalize="none" spellcheck="false" placeholder="nome@exemplo.com"></div>
       <div id="uf-reset-box" style="display:none;margin-bottom:10px;"><button type="button" class="btn sm" onclick="enviarResetMedico()">✉ Enviar email para o médico redefinir a password</button><div class="pass-rules">O médico já entra com o email e uma password guardada no Firebase Authentication. Se a esqueceu, recebe um email com a ligação para criar outra.</div></div>
       <div id="uf-pass-box">
@@ -907,6 +908,17 @@ tbody tr:last-child td{border-bottom:none;}
   </div>
 </div>
 
+<div class="modal-bg" id="modal-avisar">
+  <div class="modal">
+    <div class="modal-head"><h3>Avisar o médico da consulta</h3><button class="modal-close" onclick="closeModal('modal-avisar')">✕</button></div>
+    <div class="modal-body">
+      <div class="field"><label>Para</label><div id="av-para" style="font-weight:600;"></div><div class="cell-sub" id="av-ja"></div></div>
+      <div class="field"><label>Mensagem (pode editar)</label><textarea id="av-texto" rows="5"></textarea></div>
+      <div class="cell-sub">O WhatsApp abre com a mensagem pronta e basta carregar em enviar. O SMS abre na aplicação de mensagens do telemóvel ligado a este computador (ou no telemóvel, se estiver a usar o sistema nele).</div>
+    </div>
+    <div class="modal-foot"><button class="btn" onclick="avisoEnviar('copiar')">Copiar texto</button><button class="btn" onclick="avisoEnviar('sms')">✉ SMS</button><button class="btn solid" onclick="avisoEnviar('whatsapp')">WhatsApp</button></div>
+  </div>
+</div>
 <div class="modal-bg" id="modal-med-acao">
   <div class="modal">
     <div class="modal-head"><h3 id="ma-title">Reagendar consulta</h3><button class="modal-close" onclick="closeModal('modal-med-acao')">✕</button></div>
@@ -2468,6 +2480,8 @@ async function confirmNovaConsulta(){
   closeModal('modal-nova-consulta');
   toast(`✅ Marcação registada (${esc(pagLabel(pagador))}). O paciente segue para o Caixa, onde é emitido o documento e confirmada a consulta.`, 6000);
   enviarEmailConsulta({...apptData, id: apptId}).then(toastEmail).catch(()=>{});
+  const dm = userById(medicoId);
+  if(dm && dm.telefone && !(configDoc && configDoc.avisoMedicoApos===false)) setTimeout(()=>avisarMedico(apptId, {...apptData, id:apptId}), 500);
 }
 
 /* ---- Check-in (só depois de pago) ---- */
@@ -3116,6 +3130,7 @@ function viewAgenda(){
             acts.push(`<button class="btn sm ghost" onclick="openEditAppt('${a.id}')">Editar</button>`);
             acts.push(`<button class="btn sm" onclick="cancelAppt('${a.id}')">Cancelar</button>`);
           }
+          if(!['Finalizada','Cancelada'].includes(a.estado)) acts.push(`<button class="btn sm ghost" title="Avisar o médico por WhatsApp ou SMS" onclick="avisarMedico('${a.id}')">📲 ${a.avisoMedico?'Avisado':'Avisar'}</button>`);
           if(currentUser.role==='admin' && !liberada(a)) acts.push(`<button class="btn sm danger" onclick="deleteApptHard('${a.id}')">Apagar</button>`);
         }
         if(isMed){
@@ -4751,7 +4766,7 @@ function viewUtilizadores(){
       <tbody>${users.map(u=>`<tr>
         <td class="row-flex"><div class="avatar">${initials(u.nome)}</div><div class="cell-name">${esc(u.nome)}</div></td>
         <td>${u.role==='medico' ? (acessoMedicoOk(u) ? '<span class="cell-sub">Entra com o email</span>' : '<span class="tag red">Sem acesso — criar acesso por email</span>') : (u.username ? esc(u.username) : '<span class="tag red">Sem acesso — definir utilizador e password</span>')}</td>
-        <td>${u.email ? esc(u.email) : (u.role==='medico' ? '<span class="tag amber">Em falta</span>' : '<span class="cell-sub">—</span>')}</td>
+        <td>${u.email ? esc(u.email) : (u.role==='medico' ? '<span class="tag amber">Em falta</span>' : '<span class="cell-sub">—</span>')}${u.role==='medico' ? `<div class="cell-sub">${u.telefone ? '📱 '+esc(telMostrar(u.telefone)) : '<span style="color:#b45309;">Sem telemóvel</span>'}</div>` : ''}</td>
         <td><span class="tag blue">${roleName(u.role)}</span>${u.role==='medico' ? `<div class="cell-sub">${u.especialidadeId ? esc(espNomeDe(u.especialidadeId)) : '<span style="color:#b45309;">Sem especialidade</span>'}</div>` : ''}</td>
         <td>${u.ativo===false?'<span class="tag red">Inactivo</span>':(u.mustChange?'<span class="tag amber">Aguarda 1.º acesso</span>':'<span class="tag green">Activo</span>')}</td>
         <td style="white-space:nowrap;">
@@ -4775,7 +4790,7 @@ function openUserModal(id){
   el('uf-role').innerHTML = ROLES.map(r=>`<option value="${r.id}">${r.icon} ${r.name}</option>`).join("");
   el('uf-role').value = u ? u.role : 'recepcao';
   el('uf-esp').innerHTML = `<option value="">— Escolha a especialidade —</option>` + [...especialidades].sort((a,b)=>(a.nome||'').localeCompare(b.nome||'')).map(e=>`<option value="${e.id}">${esc(e.nome)}</option>`).join("");
-  el('uf-esp').value = u && u.especialidadeId ? u.especialidadeId : '';
+  el('uf-esp').value = u && u.especialidadeId ? u.especialidadeId : ''; el('uf-tel').value = u && u.telefone ? telMostrar(u.telefone) : '';
   const semAcesso = u && (u.role==='medico' ? !acessoMedicoOk(u) : !u.passwordHash);
   el('uf-pass').value = (!u || semAcesso) ? genTempPassword() : '';
   el('uf-pass-label').textContent = (!u || semAcesso) ? "Password inicial (8 dígitos)" : "Redefinir password (opcional — 8 dígitos)";
@@ -4789,7 +4804,7 @@ function ufRoleChanged(){
   const comAuth = med && USE_FIREBASE && u && (u.authOk||u.authUid);   // médico que já tem conta no Firebase Authentication
   el('uf-email-label').textContent = med ? 'Email do médico * (é com este email que entra no sistema)' : 'Email (opcional)';
   el('uf-username-box').style.display = med ? 'none' : '';
-  el('uf-esp-box').style.display = med ? '' : 'none';
+  el('uf-esp-box').style.display = med ? '' : 'none'; el('uf-tel-box').style.display = med ? '' : 'none';
   el('uf-email').disabled = !!comAuth;
   el('uf-reset-box').style.display = comAuth ? '' : 'none';
   el('uf-pass-box').style.display = (comAuth || (u && u.id===currentUser.id)) ? 'none' : '';
@@ -4836,6 +4851,8 @@ async function saveUser(){
   if(!med && !/^[a-z0-9._-]{3,30}$/.test(username)){ toast("⚠️ O utilizador deve ter 3–30 caracteres (letras, números, ponto, hífen ou _), sem espaços."); return; }
   if(med && !espId){ toast("⚠️ Escolha a especialidade do médico."); return; }
   if(med && !email){ toast("⚠️ Indique o email do médico (é com ele que entra no sistema)."); return; }
+  const tel = med ? telNormalizar(el('uf-tel').value) : '';
+  if(med && el('uf-tel').value.trim() && !tel){ toast("⚠️ Telemóvel inválido. Use 9 dígitos (ex.: 84 123 4567) ou o formato internacional (+258…).", 6000); return; }
   if(email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ toast("⚠️ O email não é válido."); return; }
   if(!med && users.some(u=>u.id!==editId && u.username===username)){ toast("⚠️ Este nome de utilizador já existe."); return; }
   if(med && users.some(u=>u.id!==editId && u.role==='medico' && (u.email||'').toLowerCase()===email)){ toast("⚠️ Já existe um médico com este email."); return; }
@@ -4845,8 +4862,8 @@ async function saveUser(){
     toast("⚠️ Tem de existir pelo menos um Administrador activo."); return;
   }
   const data = {nome, role, email};
-  if(med){ data.especialidadeId = espId; if(existing) data.username = null; }
-  else { data.username = username; if(existing && existing.role==='medico'){ data.especialidadeId = null; data.authUid = null; data.authOk = null; } }
+  if(med){ data.especialidadeId = espId; data.telefone = tel; if(existing) data.username = null; }
+  else { data.username = username; if(existing && existing.role==='medico'){ data.especialidadeId = null; data.telefone = null; data.authUid = null; data.authOk = null; } }
   let aviso = '';
   if(pass){
     if(med && USE_FIREBASE){
@@ -4991,6 +5008,7 @@ function viewConfig(){
       <div class="field"><label>Template ID</label><input id="em-template" type="text" value="${esc(c.emailTemplateId||'')}" placeholder="template_xxxxxxx"></div>
       <div class="field"><label>Public Key</label><input id="em-key" type="text" value="${esc(c.emailPublicKey||'')}"></div>
     </div>
+    <label style="display:flex;gap:8px;align-items:center;font-size:12.5px;margin-bottom:8px;"><input type="checkbox" id="em-aviso" ${c.avisoMedicoApos===false?'':'checked'}> Depois de marcar a consulta, propor logo o aviso ao médico por WhatsApp / SMS (precisa do telemóvel do médico em Utilizadores)</label>
     <label style="display:flex;gap:8px;align-items:center;font-size:12.5px;margin-bottom:12px;"><input type="checkbox" id="em-prontuario" ${c.emailIncluirProntuario===false?'':'checked'}> Incluir o prontuário do paciente antigo no email (o email não é um canal cifrado — desligue para o médico consultar apenas no sistema)</label>
     <div class="row-flex" style="flex-wrap:wrap;"><button class="btn solid" onclick="guardarEmailConfig()">Guardar</button><button class="btn" onclick="enviarEmailTeste()">Enviar email de teste</button></div>
     <div class="muted-note" style="margin-top:12px;">Como configurar: 1) crie conta em emailjs.com e ligue o seu Gmail/Outlook em "Email Services"; 2) em "Email Templates" crie um modelo com <b>To Email</b> = {{to_email}}, <b>Subject</b> = {{subject}} e no conteúdo <code>&lt;div style="white-space:pre-wrap"&gt;{{message}}&lt;/div&gt;</code>; 3) copie aqui o Service ID, o Template ID e a Public Key (Account).</div>
@@ -5505,6 +5523,42 @@ function textoProntuarioParaEmail(nid, antigo){
   if(!hist.length) return cab + '\nSem registos clínicos no sistema (paciente registado anteriormente).' + (p.obs ? '\n'+p.obs : '');
   return cab + '\n\n' + hist.map(h=>`• ${fmtDate(h.data)} — ${h.medicoNome||''} (${h.especialidade||''})\n  Queixa: ${h.queixa||'—'}\n  Exame: ${h.exame||'—'}\n  Diagnóstico: ${h.diagnostico||'—'}\n  Notas: ${h.notas||'—'}`).join('\n\n');
 }
+
+/* ================= AVISO AO MÉDICO POR WHATSAPP / SMS ================= */
+/* Telemóvel de Moçambique: 9 dígitos a começar por 8 (82–87) → +258…; também aceita números internacionais (+país…). Guarda só dígitos com indicativo. */
+function telNormalizar(v){
+  let d = String(v||'').replace(/[^\d+]/g,''); const intl = d.startsWith('+') || d.startsWith('00'); d = d.replace(/\D/g,''); if(d.startsWith('00')) d = d.slice(2);
+  if(!d) return '';
+  if(!intl && /^8[2-7]\d{7}$/.test(d)) return '258'+d;
+  if(/^2588[2-7]\d{7}$/.test(d)) return d;
+  if(intl && d.length>=10 && d.length<=15 && !d.startsWith('258')) return d;
+  return '';
+}
+function telMostrar(t){ t = String(t||''); const m = t.match(/^258(\d{2})(\d{3})(\d{4})$/); return m ? `+258 ${m[1]} ${m[2]} ${m[3]}` : (t ? '+'+t : ''); }
+function textoAvisoMedico(a){
+  const p = patientByNid(a.pacienteNid) || {nome:a.pacienteNome};
+  return `${(configDoc&&configDoc.nome)||'Clínica Boa Visão'}: consulta marcada para ${a.medicoNome}. Paciente: ${p.nome||a.pacienteNome} (NID ${a.pacienteNid}). ${fmtDate(a.data)} às ${a.hora}. ${a.especialidadeNome}${a.prior&&a.prior!=='Normal'?' · '+a.prior:''}.`;
+}
+function avisarMedico(apptId, ap){
+  const a = ap || appointments.find(x=>x.id===apptId); if(!a) return;
+  const m = userById(a.medicoId);
+  if(!m || !m.telefone){ toast(`⚠️ ${esc(a.medicoNome||'O médico')} não tem telemóvel registado. O Administrador acrescenta-o em Utilizadores → Editar.`, 7000); return; }
+  el('av-para').textContent = `${a.medicoNome} · ${telMostrar(m.telefone)}`;
+  el('av-texto').value = textoAvisoMedico(a);
+  el('modal-avisar').dataset.apptId = a.id; el('modal-avisar').dataset.tel = m.telefone;
+  el('av-ja').textContent = a.avisoMedico ? `Já avisado por ${a.avisoMedico.canal} (${a.avisoMedico.por||''}, ${fmtDate((a.avisoMedico.em||'').slice(0,10))}).` : '';
+  openModal('modal-avisar');
+}
+async function avisoEnviar(canal){
+  const m = el('modal-avisar'), tel = m.dataset.tel, id = m.dataset.apptId, txt = el('av-texto').value.trim();
+  if(!txt){ toast('⚠️ Escreva a mensagem.'); return; }
+  if(canal==='copiar'){ try{ await navigator.clipboard.writeText(txt); toast('✅ Texto copiado.'); }catch(e){ el('av-texto').select(); toast('Seleccione e copie o texto (Ctrl+C).'); } return; }
+  const url = canal==='whatsapp' ? `https://wa.me/${tel}?text=${encodeURIComponent(txt)}` : `sms:+${tel}?&body=${encodeURIComponent(txt)}`;
+  if(canal==='whatsapp') window.open(url, '_blank', 'noopener'); else location.href = url;
+  await Store.setDoc('appointments', id, {avisoMedico:{canal: canal==='whatsapp'?'WhatsApp':'SMS', por:currentUser.nome, em:new Date().toISOString()}});
+  audit('aviso_medico', 'Consulta', id, `aviso ao médico por ${canal==='whatsapp'?'WhatsApp':'SMS'}`);
+  closeModal('modal-avisar');
+}
 function montarEmailConsulta(a){
   const p = patientByNid(a.pacienteNid) || {nome:a.pacienteNome};
   const c = configDoc || {};
@@ -5572,7 +5626,7 @@ async function enviarEmailTeste(){
 async function guardarEmailConfig(){
   await Store.setDoc('config','main', {
     emailServiceId: el('em-service').value.trim(), emailTemplateId: el('em-template').value.trim(),
-    emailPublicKey: el('em-key').value.trim(), emailIncluirProntuario: el('em-prontuario').checked
+    emailPublicKey: el('em-key').value.trim(), emailIncluirProntuario: el('em-prontuario').checked, avisoMedicoApos: el('em-aviso').checked
   });
   toast("✅ Configuração de email guardada.");
 }
