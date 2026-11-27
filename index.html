@@ -11,6 +11,7 @@
 <!-- Firebase (compat SDK) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
 <style>
@@ -381,7 +382,7 @@ tbody tr:last-child td{border-bottom:none;}
         </div>
       </div>
       <div class="field-row">
-        <div class="field"><label>Especialidade / Serviço</label><select id="nc-especialidade" onchange="ncUpdatePrice()"></select></div>
+        <div class="field"><label>Especialidade / Serviço</label><select id="nc-especialidade" onchange="ncUpdatePrice();ncFillMedicos()"></select></div>
         <div class="field"><label>Médico responsável</label><select id="nc-medico"></select></div>
       </div>
       <div id="nc-price-box"></div>
@@ -452,10 +453,13 @@ tbody tr:last-child td{border-bottom:none;}
         <div class="field"><label>Telefone de emergência</label><input id="pf-emerg-tel" type="text"></div>
       </div>
       <div class="field"><label>Alergias conhecidas</label><input id="pf-alergias" type="text"></div>
+      <div class="field"><label>Historial clínico (transcrito da ficha física)</label><textarea id="pf-hist" rows="5" placeholder="Diagnósticos anteriores, cirurgias, tratamentos, medicação habitual, datas… O médico vê este texto no prontuário."></textarea></div>
       <div class="field"><label>Observações</label><textarea id="pf-obs"></textarea></div>
+      <div class="muted-note" id="pf-novo-nota">Registo de ficha: <b>não marca consulta e não gera cobrança</b>. O NID novo é atribuído automaticamente ao guardar.</div>
     </div>
     <div class="modal-foot">
       <button class="btn" onclick="closeModal('modal-patient')">Cancelar</button>
+      <button class="btn" id="pf-outro" onclick="savePatient(true)">Guardar e registar outro</button>
       <button class="btn solid" onclick="savePatient()">Guardar paciente</button>
     </div>
   </div>
@@ -467,10 +471,12 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="modal-body">
       <div class="field"><label>Nome completo</label><input id="uf-nome" type="text"></div>
       <div class="field-row">
-        <div class="field"><label>Utilizador (para entrar)</label><input id="uf-username" type="text" autocapitalize="none" spellcheck="false" placeholder="ex: maria.silva"></div>
+        <div class="field" id="uf-username-box"><label>Utilizador (para entrar)</label><input id="uf-username" type="text" autocapitalize="none" spellcheck="false" placeholder="ex: maria.silva"></div>
         <div class="field"><label>Perfil</label><select id="uf-role" onchange="ufRoleChanged()"></select></div>
       </div>
+      <div class="field" id="uf-esp-box" style="display:none;"><label>Especialidade do médico *</label><select id="uf-esp"></select></div>
       <div class="field"><label id="uf-email-label">Email</label><input id="uf-email" type="email" autocapitalize="none" spellcheck="false" placeholder="nome@exemplo.com"></div>
+      <div id="uf-reset-box" style="display:none;margin-bottom:10px;"><button type="button" class="btn sm" onclick="enviarResetMedico()">✉ Enviar email para o médico redefinir a password</button><div class="pass-rules">O médico já entra com o email e uma password guardada no Firebase Authentication. Se a esqueceu, recebe um email com a ligação para criar outra.</div></div>
       <div id="uf-pass-box">
         <div class="field">
           <label id="uf-pass-label">Password inicial (8 dígitos)</label>
@@ -1203,12 +1209,14 @@ const firebaseConfig = {
 
 let USE_FIREBASE = false;
 let fsdb = null;
+let fbAuth = null;   // Firebase Authentication — usado APENAS pelos médicos (entram com email)
 try{
   if(firebaseConfig.apiKey && firebaseConfig.apiKey.indexOf("COLE_AQUI") === -1){
     firebase.initializeApp(firebaseConfig);
     fsdb = firebase.firestore();
     fsdb.enablePersistence({synchronizeTabs:true}).catch(()=>{});
     USE_FIREBASE = true;
+    try{ fbAuth = firebase.auth(); fbAuth.setPersistence('none'); }catch(e){ fbAuth = null; console.warn("Firebase Authentication não carregou:", e); }
   }
 }catch(e){ console.warn("Firebase não inicializado:", e); }
 
@@ -1471,6 +1479,69 @@ function roleName(id){ const r=ROLES.find(x=>x.id===id); return r?r.name:id; }
 const ESPECIALIDADES_SEED = ["Radiologia","Oftalmologia","Cirurgia","SUR","Óptica","Farmácia","Pediatria","Maternidade",
   "Ginecologia e Obstetrícia","Estomatologia","Investigação","Laboratório","Consultas Externas","Enfermarias",
   "Sala Técnica de Montagem","Aconselhamento","Administração","Finanças","Nutrição","Psicologia","Urologia","Ortopedia"];
+const TABELA_2026 = {"esp":[["Consulta geral normal – período laboral",200],["Consulta médica geral normal – período nocturno",700],["Consulta geral de controlo (dentro de 7 dias)",100],["Consulta normal de vista",500],["Consulta normal no dentista",800],["Consulta de especialidade – controlo (dentro de 7 dias)",1000],["Consulta pré-natal inicial + vacinas (sem exames)",2500],["Consulta em observação no SUR",700],["Consulta de urgência – todas as especialidades",2000],["Estomatologia",1500],["Oftalmologia",1500],["Ginecologia e Obstetrícia",1500],["Ortopedia",1500],["Otorrinolaringologia",2000],["Cirurgia",1500],["Medicina Interna",2000],["Urologia",2000],["Fisioterapia",1500],["Nutrição",1500],["Dermatologia",2000],["Psiquiatria",1500],["Psicologia",1500],["Cardiologia",7000],["Neurologia",2000],["Medicina Ocupacional",0],["Estomatologia – consulta normal (exame clínico)",800],["Estomatologia – consulta de urgência nocturna",2000],["Estomatologia – visita médica",1000]],"trat":[["Sessão de massagem electromagnética","Tratamento",1000,["Fisioterapia"]],["Sessão de fisioterapia","Tratamento",1000,["Fisioterapia"]],["Cirurgia a YAG laser","Procedimento",2500,["Oftalmologia"]],["Cirurgia de trabeculotomia monocular","Procedimento",15000,["Oftalmologia"]],["Cirurgia de calázio monocular","Procedimento",5000,["Oftalmologia"]],["Cirurgia de pinguécula monocular","Procedimento",5000,["Oftalmologia"]],["Cirurgia pterígio com enxerto monocular","Procedimento",15000,["Oftalmologia"]],["Evisceração","Procedimento",15000,["Oftalmologia"]],["Prótese ocular","Procedimento",3000,["Oftalmologia"]],["Colocação de prótese ocular","Procedimento",2000,["Oftalmologia"]],["Cirurgias de catarata kit básico RIGID LENS monocular","Procedimento",15000,["Oftalmologia"]],["Cirurgia de catarata kit médio FOLDABLE LENS monocular","Procedimento",25000,["Oftalmologia"]],["Cirurgia de catarata kit especial PHACO emulsificação monocular","Procedimento",40000,["Oftalmologia"]],["Cirurgia de estrabismo monocular","Procedimento",30000,["Oftalmologia"]],["Tumor ocular","Procedimento",15000,["Oftalmologia"]],["Cirurgia de goniotomia","Procedimento",15000,["Oftalmologia"]],["Cirurgia de ptose","Procedimento",10000,["Oftalmologia"]],["Cirurgia de laser retina","Procedimento",50000,["Oftalmologia"]],["Cirurgia de glaucoma válvula","Procedimento",15000,["Oftalmologia"]],["Cirurgia da pálpebra","Procedimento",5000,["Oftalmologia"]],["Injecção de medicamento subconjuntival","Procedimento",5000,["Oftalmologia"]],["Injecção Intra-vitrial de Avastin","Procedimento",15000,["Oftalmologia"]],["Parto normal","Procedimento",20000,["Ginecologia e Obstetrícia"]],["Cesariana anestesia inclusa","Procedimento",50000,["Ginecologia e Obstetrícia"]],["Cirurgia de Hérnia anestesia inclusa","Procedimento",50000,["Cirurgia"]],["Circuncisão anestesia local incluso","Procedimento",8000,["Cirurgia","Urologia"]],["Histerectomia","Procedimento",50000,["Cirurgia"]],["Miomectomia","Procedimento",50000,["Cirurgia"]],["Laparotomia","Procedimento",50000,["Cirurgia"]],["Gravidez ectópica","Procedimento",45000,["Ginecologia e Obstetrícia"]],["Aborto medicamentoso","Procedimento",5000,["Ginecologia e Obstetrícia"]],["Aborto cirúrgico","Procedimento",35000,["Ginecologia e Obstetrícia"]],["Lavagem do tímpano","Procedimento",1000,["Cirurgia"]],["Trauma","Procedimento",10000,["Cirurgia"]],["Corpo estranho","Procedimento",2500,["Cirurgia"]],["Biópsia bloco operatório","Procedimento",10000,["Cirurgia"]],["Biópsia incisional","Procedimento",10000,["Cirurgia"]],["Biópsia excisional","Procedimento",15000,["Cirurgia"]],["Punção lombar","Procedimento",3500,["Cirurgia"]],["Paracentese","Procedimento",1000,["Cirurgia"]],["Triamcinolona intralesional","Procedimento",2500,["Cirurgia"]],["Penso simples com médico cirurgião","Procedimento",1000,["Cirurgia"]],["Penso complicado com médico cirurgião","Procedimento",1500,["Cirurgia"]],["Extracção de unha encravada","Procedimento",5000,["Cirurgia"]],["Herniorrafia (anestesia raquidiana)","Procedimento",50000,["Cirurgia"]],["Herniorrafia (anestesia geral)","Procedimento",60000,["Cirurgia"]],["Cirurgia de hérnia de urgência","Procedimento",60000,["Cirurgia"]],["Hemorroidectomia (anestesia raquidiana)","Procedimento",50000,["Cirurgia"]],["Hemorroidectomia (anestesia geral)","Procedimento",60000,["Cirurgia"]],["Encerramento da face e sutura (anestesia raquidiana)","Procedimento",20000,["Cirurgia"]],["Encerramento da face e sutura (anestesia geral)","Procedimento",25000,["Cirurgia"]],["Panarício","Procedimento",5000,["Cirurgia"]],["Circuncisão (anestesia local)","Procedimento",8000,["Cirurgia","Urologia"]],["Circuncisão (anestesia geral)","Procedimento",35000,["Cirurgia","Urologia"]],["Apendectomia (anestesia raquidiana)","Procedimento",50000,["Cirurgia"]],["Apendectomia (anestesia geral)","Procedimento",60000,["Cirurgia"]],["Laparotomia (anestesia raquidiana)","Procedimento",65000,["Cirurgia"]],["Laparotomia (anestesia geral)","Procedimento",65000,["Cirurgia"]],["Colecistectomia (anestesia raquidiana)","Procedimento",50000,["Cirurgia"]],["Colecistectomia (anestesia geral)","Procedimento",50000,["Cirurgia"]],["Hemicolectomia c/ íleo transversostomia (anestesia raquidiana)","Procedimento",60000,["Cirurgia"]],["Hemicolectomia c/ íleo transversostomia (anestesia geral)","Procedimento",60000,["Cirurgia"]],["Extracção de quisto (anestesia raquidiana)","Procedimento",40000,["Cirurgia"]],["Extracção de quisto (anestesia geral)","Procedimento",55000,["Cirurgia"]],["Sutura plástica de ferida múltipla (anestesia raquidiana)","Procedimento",50000,["Cirurgia"]],["Sutura plástica de ferida múltipla (anestesia geral)","Procedimento",60000,["Cirurgia"]],["Sutura plástica de lábios (anestesia local)","Procedimento",30000,["Cirurgia"]],["Sutura plástica de lábios (anestesia geral)","Procedimento",50000,["Cirurgia"]],["Drenagem de abcessos (anestesia raquidiana)","Procedimento",35000,["Cirurgia"]],["Drenagem de abcessos c/ anestesia geral","Procedimento",40000,["Cirurgia"]],["Trombectomia + excisão da hemorroida (anestesia raquidiana)","Procedimento",65000,["Cirurgia"]],["Trombectomia + excisão da hemorroida (anestesia geral)","Procedimento",75000,["Cirurgia"]],["Drenagem de abcesso perianal (anestesia raquidiana)","Procedimento",30000,["Cirurgia"]],["Drenagem de abcesso perianal (anestesia geral)","Procedimento",35000,["Cirurgia"]],["Extracção de tumor + biópsia - peq cirurg (anestesia raquidiana)","Procedimento",40000,["Cirurgia"]],["Extracção de tumor + biópsia - peq cirurg (anestesia geral)","Procedimento",40000,["Cirurgia"]],["Amputação c/ extracção de gânglios (anestesia raquidiana)","Procedimento",70000,["Cirurgia"]],["Amputação c/ extracção de gânglios (anestesia geral)","Procedimento",75000,["Cirurgia"]],["Fistulectomia (anestesia raquidiana)","Procedimento",35000,["Cirurgia"]],["Fistulectomia (anestesia geral)","Procedimento",40000,["Cirurgia"]],["Ganglioma de corpo (anestesia raquidiana)","Procedimento",50000,["Cirurgia"]],["Ganglioma de corpo (anestesia geral)","Procedimento",60000,["Cirurgia"]],["Granuloma de ferida anestesia raquidiana","Procedimento",35000,["Cirurgia"]],["Granuloma de ferida anestesia geral","Procedimento",35000,["Cirurgia"]],["Exérese de nódulo","Procedimento",20000,["Cirurgia"]],["Exérese de nódulo com anestesia geral","Procedimento",45000,["Cirurgia"]],["Tireoidectomia anestesia geral 3 dias internamento, consumíveis do bloco","Procedimento",85000,["Cirurgia"]],["Fissura anal anestesia raquidiana","Procedimento",30000,["Cirurgia"]],["Fissura anal anestesia geral","Procedimento",45000,["Cirurgia"]],["Vulgares da face e condilomas (anestesia local)","Procedimento",40000,["Cirurgia"]],["Vulgares da face e condilomas (anestesia geral)","Procedimento",40000,["Cirurgia"]],["Cirurgia dermolipectomia (dermoplastia)","Procedimento",80000,["Cirurgia"]],["Sutura de ferida no bloco operatório","Procedimento",10000,["Cirurgia"]],["Sutura simples de ferida","Procedimento",2500,["Cirurgia"]],["Laparoscopia (anestesia geral)","Procedimento",35000,["Cirurgia"]],["Fasciotomia (anestesia local)","Procedimento",10000,["Cirurgia"]],["Fasciotomia (anestesia geral)","Procedimento",35000,["Cirurgia"]],["Quisto sebáceo anestesia local","Procedimento",10000,["Cirurgia"]],["Lipoma anestesia local","Procedimento",10000,["Cirurgia"]],["Exérese de quelóide labial anestesia geral","Procedimento",50000,["Cirurgia"]],["Reparação de óculos","Tratamento",200,["Óptica"]],["Montagem de óculos armação externa","Tratamento",250,["Óptica"]],["Substituição de peças no óculo","Tratamento",250,["Óptica"]],["Internamento cama 24h","Diária de internamento",1500,[]],["Internamento assistência médica não medicamentosa","Diária de internamento",1500,[]],["Penso simples com enfermeiro","Enfermagem",500,[]],["Assistência médica na Sala de observação por hora","Enfermagem",500,[]],["Cuidados Intensivos por Hora","Enfermagem",500,[]],["Transfusão de Sangue completa","Enfermagem",4000,[]],["Anestesia local","Procedimento",1000,[]],["Anestesia regional","Procedimento",20000,[]],["Anestesia geral","Procedimento",25000,[]],["Medicina Dentária Preventiva – Aplicação tópica de flúor com moldeira","Procedimento",500,["Estomatologia"]],["Medicina Dentária Preventiva – Selante de fossetas e fissuras por dente","Procedimento",350,["Estomatologia"]],["Medicina Dentária Preventiva – Selante de fossetas e fissuras por quadrante","Procedimento",900,["Estomatologia"]],["Medicina Dentária Preventiva – Polimento profilático","Procedimento",850,["Estomatologia"]],["Medicina Dentária Preventiva – Tratamento de hipersensibilidade dentária por sessão","Procedimento",500,["Estomatologia"]],["Dentisteria Operatória – Obturação temporária(protecção pulpar)","Procedimento",750,["Estomatologia"]],["Dentisteria Operatória – Restauração em cavidade uma face","Procedimento",700,["Estomatologia"]],["Dentisteria Operatória – Restauração em cavidade duas face","Procedimento",1400,["Estomatologia"]],["Dentisteria Operatória – Restauração em cavidade três face","Procedimento",1800,["Estomatologia"]],["Dentisteria Operatória – Coroa sem meio retentivos(pino,espigão e similares)","Procedimento",2100,["Estomatologia"]],["Dentisteria Operatória – Restauração com meio retentivos(pino,espigão e similares)","Procedimento",2400,["Estomatologia"]],["Dentisteria Operatória – Fixação da coroa","Procedimento",2100,["Estomatologia"]],["Dentisteria Operatória – Branqueamento interior por dente","Procedimento",1050,["Estomatologia"]],["Dentisteria Operatória – Branqueamento externo 35% por sessão(não inclui a moldeira)","Procedimento",2800,["Estomatologia"]],["Dentisteria Operatória – Coroa pré-fabricada de aço crómio -níquel, crómio cobalto","Procedimento",2100,["Estomatologia"]],["Dentisteria Operatória – Branqueamento externo 10% por sessão(não inclui a moldeira)","Procedimento",1150,["Estomatologia"]],["Dentisteria Operatória – Branqueamento vital 2 arcos led-laser","Procedimento",21000,["Estomatologia"]],["Endodontia – Em várias sessões não inclui restauração","Procedimento",12000,["Estomatologia"]],["Endodontia – Dente de um canal","Procedimento",4000,["Estomatologia"]],["Endodontia – Dente de dois canais","Procedimento",5000,["Estomatologia"]],["Endodontia – Dente de três canais","Procedimento",6000,["Estomatologia"]],["Endodontia – Urgência endodôntica","Procedimento",4000,["Estomatologia"]],["Endodontia – Trepanação dentária para drenagem de abcesso","Procedimento",4000,["Estomatologia"]],["Endodontia – Pulpotomia/pulpectomia","Procedimento",9000,["Estomatologia"]],["Endodontia – Apicoformação","Procedimento",6000,["Estomatologia"]],["Extracção (exodontia) – Exodontia simples monoradicular","Procedimento",1000,["Estomatologia"]],["Extracção (exodontia) – Exodontia simples pluriradicular","Procedimento",1150,["Estomatologia"]],["Extracção (exodontia) – Exodontia de dente decíduo","Procedimento",800,["Estomatologia"]],["Extracção (exodontia) – Exodontia complicada sem osteotomia","Procedimento",1800,["Estomatologia"]],["Extracção (exodontia) – Exodontia complicada com osteotomia","Procedimento",3000,["Estomatologia"]],["Extracção (exodontia) – Exodontia com alveoloplastia por dente","Procedimento",1400,["Estomatologia"]],["Extracção (exodontia) – Exodontia de dente incluso","Procedimento",3500,["Estomatologia"]],["Extracção (exodontia) – Exodontia de dente semi-incluso","Procedimento",3500,["Estomatologia"]],["Infecções – Apicectomia monoradicular","Procedimento",5600,["Estomatologia"]],["Infecções – Apicectomia multirradicular","Procedimento",7000,["Estomatologia"]],["Infecções – Remoção de cálculos salivares","Procedimento",7000,["Estomatologia"]],["Infecções – Correcção de fístulas oroantrais/fendas","Procedimento",8400,["Estomatologia"]],["Infecções – Tratamento de pericoronite aguda","Procedimento",2500,["Estomatologia"]],["Infecções – Incisão/drenagem de abcesso, quisto, hematoma de","Procedimento",9800,["Estomatologia"]],["Infecções – Língua ou pavimento da boca (superficiais)","Procedimento",3500,["Estomatologia"]],["Infecções – Incisão/drenagem de abcesso de origem dentária-via cutânea","Procedimento",2800,["Estomatologia"]],["Infecções – Pensos pós drenagem de abcessos","Procedimento",500,["Estomatologia"]],["Infecções – Tratamento de alveolite","Procedimento",700,["Estomatologia"]],["Remoção – Gengivectomia localizada","Procedimento",1500,["Estomatologia"]],["Remoção – Remoção de épulide gengival","Procedimento",8400,["Estomatologia"]],["Remoção – Remoção de quistos maxilares","Procedimento",11200,["Estomatologia"]],["Remoção – Remoção de pequenos tumores de tecidos moles da cavidade oral","Procedimento",7000,["Estomatologia"]],["Remoção – Remoção de tecido duro(tórus, plastia óssea e outros)","Procedimento",11200,["Estomatologia"]],["Periodontologia – Destartarização, incluindo polimento (por sessão)","Procedimento",1150,["Estomatologia"]],["Periodontologia – Curetagem subgengival sem cirurgia por dente","Procedimento",500,["Estomatologia"]],["Periodontologia – Curetagem subgengival sem cirurgia por dente(até 6 dentes)","Procedimento",2100,["Estomatologia"]],["Periodontologia – Gengivectomia periodontal","Procedimento",3500,["Estomatologia"]],["Periodontologia – Gengivoplastia(até 6 dentes)","Procedimento",1400,["Estomatologia"]],["Periodontologia – Gengivoplastia(mais de 6 dentes)","Procedimento",2550,["Estomatologia"]],["Periodontologia – Frenectomia","Procedimento",2100,["Estomatologia"]],["Periodontologia – Retalho periodontal até 4 dentes","Procedimento",3500,["Estomatologia"]],["Periodontologia – Retalho periodontal mais de um dente(por cada dente)","Procedimento",700,["Estomatologia"]],["Periodontologia – Cirurgia gengival estética por sector","Procedimento",4900,["Estomatologia"]],["Periodontologia – Enxerto gengival","Procedimento",4200,["Estomatologia"]],["Periodontologia – Enxerto ósseo","Procedimento",5600,["Estomatologia"]],["Periodontologia – Enxerto de hidroxiapatita","Procedimento",7000,["Estomatologia"]],["Periodontologia – Ferulização dentária com arame por dente","Procedimento",4900,["Estomatologia"]],["Periodontologia – Ferulização dentária com arame 3-6 dentes","Procedimento",6300,["Estomatologia"]],["Periodontologia – Ferulização dentária com arame mais de 6 dentes","Procedimento",11200,["Estomatologia"]],["Periodontologia – Ferulização dentária com compósito por dente","Procedimento",1700,["Estomatologia"]],["Periodontologia – Ferulização dentária com compósito 3-6 dentes","Procedimento",2400,["Estomatologia"]],["Periodontologia – Ferulização dentária com compósito mais de 6 dentes","Procedimento",4200,["Estomatologia"]],["Periodontologia – Reimplante dentário sem tratamento endodôntico","Procedimento",4900,["Estomatologia"]],["Periodontologia – Sutura de tecidos moles(lábios, língua, vestíbulos e outros)","Procedimento",3500,["Estomatologia"]],["Periodontologia – Sutura de face(área pequena)","Procedimento",2800,["Estomatologia"]],["Periodontologia – Sutura de face(área média)","Procedimento",4200,["Estomatologia"]],["Periodontologia – Sutura de face (área extensa)","Procedimento",6300,["Estomatologia"]],["Oclusão – Desgastes selectivos","Procedimento",1700,["Estomatologia"]],["Oclusão – Moldagem e modelo de estudo","Procedimento",700,["Estomatologia"]],["Oclusão – Translado com arco facial(moldagem e modelo de estudo)","Procedimento",2100,["Estomatologia"]],["Ortodontia – Análise e preparação","Procedimento",500,["Estomatologia"]],["Ortodontia – Moldagem e modelo de estudo","Procedimento",700,["Estomatologia"]],["Ortodontia – Fotografia e estudos fotográficos","Procedimento",1400,["Estomatologia"]],["Ortodontia – Análise cefalométrica","Procedimento",1700,["Estomatologia"]],["Ortodontia – Análise dos modelos de estudo(sem montagem em articulador)","Procedimento",1700,["Estomatologia"]],["Ortodontia – Análise dos modelos de estudo(com montagem em articulador)","Procedimento",2800,["Estomatologia"]],["Aparelhos – Confecções de goteira para cirurgia ortognática","Procedimento",14000,["Estomatologia"]],["Aparelhos – Aparelho removível biomecânico(por maxilar)","Procedimento",12600,["Estomatologia"]],["Aparelhos – Aparelho de contenção removível (por maxilar)","Procedimento",8400,["Estomatologia"]],["Aparelhos – Aparelho de contenção fixo(por maxilar)","Procedimento",10500,["Estomatologia"]],["Aparelhos – Aparelho removível funcional","Procedimento",25200,["Estomatologia"]],["Aparelhos – Aparelho fixo total incluindo colocação","Procedimento",22000,["Estomatologia"]],["Aparelhos – Aparelho fixo por maxilar incluido colocação","Procedimento",11000,["Estomatologia"]],["Aparelhos – Colocação do aparelho total","Procedimento",8000,["Estomatologia"]],["Aparelhos – Colocação do aparelho por maxilar","Procedimento",4000,["Estomatologia"]],["Aparelhos – Manutenção do aparelho","Procedimento",5000,["Estomatologia"]],["Aparelhos – Braquete 1 unidade","Procedimento",2560,["Estomatologia"]],["Aparelhos – Bengalinha 1 unidade","Procedimento",2500,["Estomatologia"]],["Aparelhos – Modular 1 unidade","Procedimento",1500,["Estomatologia"]],["Aparelhos – Elástico de bengalinha","Procedimento",2400,["Estomatologia"]],["Aparelhos – Elástico para aparelho","Procedimento",1400,["Estomatologia"]],["Aparelhos – Fios de ortodôntico niti sup/inf","Procedimento",2500,["Estomatologia"]],["Aparelhos – Aparelho extra oral","Procedimento",21000,["Estomatologia"]],["Aparelhos – Controlo de aparelho","Procedimento",6300,["Estomatologia"]],["Aparelhos – Reparação de aparelho","Procedimento",7700,["Estomatologia"]],["Aparelhos – Férula acrílica por dente","Procedimento",3500,["Estomatologia"]],["Aparelhos – Fono","Procedimento",3950,["Estomatologia"]],["Aparelhos – Activar aparelho","Procedimento",300,["Estomatologia"]],["Próteses – Próteses com gancho cada dente","Procedimento",3000,["Estomatologia"]],["Próteses – Prótese parcial de 1 dente","Procedimento",4000,["Estomatologia"]],["Próteses – Prótese parcial de 2 dentes","Procedimento",5000,["Estomatologia"]],["Próteses – Prótese parcial de 3 dentes","Procedimento",6000,["Estomatologia"]],["Próteses – Prótese parcial de 4 dentes","Procedimento",7000,["Estomatologia"]],["Próteses – Prótese parcial de 5 dentes","Procedimento",8000,["Estomatologia"]],["Próteses – Prótese parcial de 6 dentes","Procedimento",9000,["Estomatologia"]],["Próteses – Prótese parcial de 7 dentes","Procedimento",10000,["Estomatologia"]],["Próteses – Prótese parcial de 8 dentes","Procedimento",13000,["Estomatologia"]],["Próteses – Prótese parcial de 9 dentes","Procedimento",13000,["Estomatologia"]],["Próteses – Prótese parcial de 10 dentes","Procedimento",13000,["Estomatologia"]],["Próteses – Prótese parcial de 11 dentes","Procedimento",13000,["Estomatologia"]],["Próteses – Prótese parcial de 12 dentes","Procedimento",13000,["Estomatologia"]],["Próteses – Prótese total Unimaxilar","Procedimento",16000,["Estomatologia"]],["Próteses – Prótese total sup/inferior","Procedimento",28000,["Estomatologia"]],["Próteses – Goteira","Procedimento",8000,["Estomatologia"]],["Próteses Removíveis Esqueléticas – Prótese parcial 1-2 dentes","Procedimento",22600,["Estomatologia"]],["Próteses Removíveis Esqueléticas – Prótese parcial 3 dentes","Procedimento",25000,["Estomatologia"]],["Próteses Removíveis Esqueléticas – Prótese parcial 4-6 dentes","Procedimento",25200,["Estomatologia"]],["Próteses Removíveis Esqueléticas – Prótese parcial 7-9 dentes","Procedimento",28000,["Estomatologia"]],["Próteses Removíveis Esqueléticas – Prótese parcial 10-12 dentes","Procedimento",30800,["Estomatologia"]],["Próteses Removíveis Esqueléticas – Prótese parcial 13-14 dentes","Procedimento",33600,["Estomatologia"]],["Próteses Removíveis Esqueléticas – Suporte metálico para prótese removível","Procedimento",4200,["Estomatologia"]],["Próteses Fixas(coroa Por Unidade) – Coroa metálica(metal-acrílico)","Procedimento",14000,["Estomatologia"]],["Próteses Fixas(coroa Por Unidade) – Coroa provisório acrílico","Procedimento",8000,["Estomatologia"]],["Próteses Fixas(coroa Por Unidade) – Coroa metalomecanica","Procedimento",23000,["Estomatologia"]],["Próteses Fixas(coroa Por Unidade) – Coroa com falso coto","Procedimento",19000,["Estomatologia"]],["Próteses Fixas(coroa Por Unidade) – Coroa telescopia com cor de dente","Procedimento",20000,["Estomatologia"]],["Próteses Fixas(coroa Por Unidade) – Coroa telescopia metálica","Procedimento",17000,["Estomatologia"]],["Próteses Fixas(coroa Por Unidade) – Coroa Davis modificada","Procedimento",9000,["Estomatologia"]],["Próteses Fixas(coroa Por Unidade) – Coroa Artglass","Procedimento",17000,["Estomatologia"]],["Próteses Fixas(coroa Por Unidade) – Coroa metálica com attachment","Procedimento",22000,["Estomatologia"]],["Próteses Fixas(coroa Por Unidade) – Coroa metaloceramica com attachment","Procedimento",23000,["Estomatologia"]],["Próteses Fixas(coroa Por Unidade) – Coroa de ouro","Procedimento",24000,["Estomatologia"]],["Pontes – Pontes provisórias acrílicas por dente","Procedimento",12000,["Estomatologia"]],["Pontes – Ponte fixa metaloceramica por dente","Procedimento",19000,["Estomatologia"]],["Pontes – Ponte fixa em ouro por dente","Procedimento",25000,["Estomatologia"]],["Pontes – Ponte Maryland por dente","Procedimento",12000,["Estomatologia"]],["Diversos – Reparação simples (fractura de próteses acrílicas)","Procedimento",500,["Estomatologia"]],["Diversos – Reparação complexa (fractura múltiplas de prótese acrílica)","Procedimento",1000,["Estomatologia"]],["Diversos – Ganchos metálicos (apoio metálico por unidade)","Procedimento",2100,["Estomatologia"]],["Diversos – Acrescentar uma ponte numa prótese acrílica/esqueletica","Procedimento",1400,["Estomatologia"]],["Diversos – Acrescentar mais de um dente numa prótese(por cada dente)","Procedimento",1000,["Estomatologia"]],["Diversos – Rebasamento em prótese superior ou inferior","Procedimento",1150,["Estomatologia"]],["Diversos – Rebasamento com condicionador de tecido","Procedimento",1400,["Estomatologia"]],["Diversos – Férula de oclusão","Procedimento",5350,["Estomatologia"]],["Diversos – Moldeira de branqueamento","Procedimento",1150,["Estomatologia"]],["Diversos – Inlay em ouro","Procedimento",19600,["Estomatologia"]],["Diversos – Inlay em Artglass","Procedimento",16800,["Estomatologia"]],["Diversos – Falso coto","Procedimento",5600,["Estomatologia"]],["Diversos – Attachment para coroa","Procedimento",3500,["Estomatologia"]],["Diversos – Sistema de acople para attachment","Procedimento",6300,["Estomatologia"]],["Diversos – Grelha metálica de reforco","Procedimento",6300,["Estomatologia"]],["Diversos – Inlay/Onlay","Procedimento",6300,["Estomatologia"]],["Diversos – Faceta laminada por dente em artglass","Procedimento",9550,["Estomatologia"]],["Diversos – Inlay cerâmico","Procedimento",16800,["Estomatologia"]],["Diversos – Inlay resina","Procedimento",12500,["Estomatologia"]],["Diversos – Piercings(brilhantes)","Procedimento",850,["Estomatologia"]],["Diversos – Reparação cerâmica por dente","Procedimento",4200,["Estomatologia"]],["Diversos – Onlay em ouro","Procedimento",25200,["Estomatologia"]]],"exa":[["Refracção",500,["Oftalmologia"]],["Tonometria",1000,["Oftalmologia"]],["Gonioscopia",500,["Oftalmologia"]],["Campimetria",5000,["Oftalmologia"]],["OCT – mácula",5000,["Oftalmologia"]],["OCT – retina",5000,["Oftalmologia"]],["OCT – glaucoma (disco óptico)",5000,["Oftalmologia"]],["Paquimetria",500,["Oftalmologia"]],["Fundoscopia – foto do fundo ocular",3000,["Oftalmologia"]],["Radiografia Oclusa",750,["Estomatologia"]],["Radiografia periapical",750,["Estomatologia"]],["Radiografia interproximal (Bitwing)",850,["Estomatologia"]]],"prod":[["Lencinho de óculos","Óptica","Acessório",150],["Líquido de Limpeza de óculos","Óptica","Acessório",250],["Gotas antibióticas","Medicamento","Outro",300],["Gotas anti-inflamatórias","Medicamento","Outro",300],["Gotas antiglaucoma","Medicamento","Outro",300],["Gotas antifúngicas","Medicamento","Outro",300],["Gotas anti alérgicas","Medicamento","Outro",500],["Lágrimas artificiais","Medicamento","Outro",200],["Atropina","Medicamento","Outro",300],["Low Range Frames metálico","Óptica","Armação",700],["Low Range Frames Astes metálicas","Óptica","Armação",700],["Low Range frames plástico Retangular","Óptica","Armação",1500],["Low Ranger frames Oval","Óptica","Armação",2250],["Low Ranger frames pediátrico","Óptica","Armação",2500],["Mid Range Frames Designer","Óptica","Armação",4000],["Mid Range Frames Griff","Óptica","Armação",3500],["Mid Ranger Frames metálico","Óptica","Armação",4000],["Mid Ranger Frames plástico Retangular","Óptica","Armação",3500],["Designer Frames Brand","Óptica","Armação",5000],["Designer Frames Com Protector","Óptica","Armação",6000],["Designer Frames Slim","Óptica","Armação",7000],["Sun Glass Designer","Óptica","Óculos de sol",3000],["Sun Glass Moder","Óptica","Óculos de sol",2500],["Sun Glass Low Ranger","Óptica","Óculos de sol",1200],["Óculos pré Graduados Pen Type","Óptica","Armação",900],["Óculos pré Graduados Pen normal Black","Óptica","Armação",1200],["Óculos pré Graduado Fordable","Óptica","Armação",1500],["Óculos pré Graduado slim bag","Óptica","Armação",2000],["Óculos pré Graduados Metal Designer","Óptica","Armação",2500],["Par De Lentes claras Dentro do intervalo com Anti-Reflexo","Óptica","Lente",1000],["Par de Lentes Claras for a do Intervalo com Sphera de +/-4.00; Cylindro acima de +/-2.00","Óptica","Lente",4000],["Par De lentes Fotocromaticas dentro do intervalo","Óptica","Lente",1500],["Par de Lentes Fotocromaticas for a do intervalo Sphera de +/-4.00; Cylindro acima de +/-2.00","Óptica","Lente",5000],["Par de Lentes Bi-Focais TRANSPARENTES com Anti-Reflexo","Óptica","Lente",6000],["Par de Lentes Bi-Focais Fotocromaticas","Óptica","Lente",6000],["Par de Lentes Progressivas","Óptica","Lente",8000],["Par de lentes Blue-Cut/Blue-Block Monofocal","Óptica","Lente",8000],["Par de Lentes de Policarbonato","Óptica","Lente",11000],["Par de lentes Blue-Cut/Blue-Block Multifocal","Óptica","Lente",12000]]};
+
+/* ================= TABELA DE PREÇOS 2026 (preços INDIVIDUAIS; a coluna EMPRESAS fica em branco: define-se em cada empresa/seguradora) ================= */
+const T26_CAT_PRODUTO = {'Medicamento':1,'Óptica':1};
+function tabela2026Plano(vazio){
+  const N = xlNorm, ids = {};
+  const ex = {esp: vazio?ESPECIALIDADES_SEED.map((nome,i)=>({id:'seed'+i, nome, preco:0})).filter(e=>!TABELA_2026.esp.some(r=>xlNorm(r[0])===xlNorm(e.nome))):especialidades, trat: vazio?[]:tratamentos, exa: vazio?[]:exames, prod: vazio?[]:medicamentos};
+  const mapa = l => new Map(l.map(x=>[N(x.nome), x]));
+  const m = {esp:mapa(ex.esp), trat:mapa(ex.trat), exa:mapa(ex.exa), prod:mapa(ex.prod)};
+  const docs = {esp:[], trat:[], exa:[], prod:[]}, cont = {esp:{n:0,u:0,i:0}, trat:{n:0,u:0,i:0}, exa:{n:0,u:0,i:0}, prod:{n:0,u:0,i:0}};
+  const idEsp = nome => ids[N(nome)] || '';
+  TABELA_2026.esp.forEach(([nome, preco], i)=>{
+    const e = m.esp.get(N(nome)), id = e ? e.id : 't26e_'+i; ids[N(nome)] = id;
+    if(!e) { docs.esp.push({id, nome, preco, ativo:true}); cont.esp.n++; }
+    else if(Number(e.preco)!==preco) { docs.esp.push({id, preco}); cont.esp.u++; } else cont.esp.i++;
+  });
+  m.esp.forEach((e,k)=>{ if(!ids[k]) ids[k] = e.id; });
+  // especialidades referidas nos itens que ainda não existem (ex.: Fisioterapia) são criadas sem preço
+  const preciso = new Set(); [...TABELA_2026.trat, ...TABELA_2026.exa].forEach(r=>r[r.length-1].forEach(n=>{ if(!ids[N(n)]) preciso.add(n); }));
+  [...preciso].forEach((nome,i)=>{ const id = 't26x_'+i; ids[N(nome)] = id; docs.esp.push({id, nome, preco:0, ativo:true}); cont.esp.n++; });
+  TABELA_2026.trat.forEach(([nome, categoria, preco, esps], i)=>{
+    const e = m.trat.get(N(nome)), id = e ? e.id : 't26t_'+i;
+    if(!e){ docs.trat.push({id, nome, categoria, preco, especialidades:esps.map(idEsp).filter(Boolean), suprimentos:[], maoObra:0}); cont.trat.n++; }
+    else if(Number(e.preco)!==preco || !e.categoria){ docs.trat.push({id, preco, ...(e.categoria?{}:{categoria})}); cont.trat.u++; } else cont.trat.i++;
+  });
+  TABELA_2026.exa.forEach(([nome, preco, esps], i)=>{
+    const e = m.exa.get(N(nome)), id = e ? e.id : 't26x2_'+i;
+    if(!e){ docs.exa.push({id, nome, preco, especialidades:esps.map(idEsp).filter(Boolean)}); cont.exa.n++; }
+    else if(Number(e.preco)!==preco){ docs.exa.push({id, preco}); cont.exa.u++; } else cont.exa.i++;
+  });
+  TABELA_2026.prod.forEach(([nome, categoria, subtipo, preco], i)=>{
+    const e = m.prod.get(N(nome)), id = e ? e.id : 't26p_'+i;
+    if(!e){ docs.prod.push({id, nome, categoria, subtipo, preco, precoCompra:'', stock:0, stockMin:0, validade:'', lote:'', codigoBarras:'', ativo:true}); cont.prod.n++; }
+    else if(Number(e.preco)!==preco){ docs.prod.push({id, preco}); cont.prod.u++; } else cont.prod.i++;
+  });
+  return {docs, cont};
+}
+async function aplicarTabela2026(opts){
+  opts = opts||{};
+  if(!opts.vazio && (!currentUser || currentUser.role!=='admin')) return null;
+  const {docs, cont} = tabela2026Plano(!!opts.vazio);
+  await Store.bulkSet('especialidades', docs.esp);
+  await Store.bulkSet('tratamentos', docs.trat);
+  await Store.bulkSet('exames', docs.exa);
+  await Store.bulkSet('medicamentos', docs.prod);
+  if(!opts.vazio) audit('tabela_precos_2026', 'Catálogo', 'TABELA_2026', `${docs.esp.length+docs.trat.length+docs.exa.length+docs.prod.length} itens criados/actualizados (preços individuais; empresas em branco)`);
+  return cont;
+}
+function cardTabela2026(){
+  const {cont} = tabela2026Plano(false), s = k=>cont[k], novos = Object.values(cont).reduce((t,c)=>t+c.n,0), upd = Object.values(cont).reduce((t,c)=>t+c.u,0);
+  const lin = (nome,k)=>`<tr><td>${nome}</td><td style="text-align:right;">${s(k).n}</td><td style="text-align:right;">${s(k).u}</td><td style="text-align:right;">${s(k).i}</td></tr>`;
+  return `<div class="card" style="margin-bottom:14px;"><h3>Tabela de preços 2026 (Clínica Boa Visão)</h3>
+    <div class="csub">Carrega os preços <b>individuais</b> da tabela oficial 2026: consultas por especialidade, exames, procedimentos, cirurgias, estomatologia, serviços, internamento, anestesia, gotas e produtos da óptica. Os preços de <b>empresas e seguradoras ficam em branco</b>: defina-os em cada entidade. Não apaga nada: o que já existe com o mesmo nome só tem o preço actualizado (composição de suprimentos e mão de obra mantêm-se).</div>
+    <div class="table-wrap"><table><thead><tr><th>Catálogo</th><th style="text-align:right;">Novos</th><th style="text-align:right;">Preço a actualizar</th><th style="text-align:right;">Já iguais</th></tr></thead><tbody>${lin('Consultas (especialidades)','esp')}${lin('Tratamentos e procedimentos','trat')}${lin('Exames','exa')}${lin('Produtos (gotas e óptica)','prod')}</tbody></table></div>
+    <button class="btn primary" type="button" id="t26-go" onclick="aplicarTabela2026UI()" ${novos+upd?'':'disabled'} style="margin-top:10px;">${novos+upd?`Aplicar tabela 2026 (${novos} novos · ${upd} preços)`:'✅ Tabela 2026 já aplicada'}</button> <span id="t26-st" class="cell-sub"></span></div>`;
+}
+async function aplicarTabela2026UI(){
+  if(!confirm('Aplicar a tabela de preços 2026? Os itens novos são criados e os que já existem (mesmo nome) ficam com o preço individual da tabela. Nada é apagado.')) return;
+  const b = el('t26-go'), st = el('t26-st'); b.disabled = true; st.textContent = 'A aplicar…';
+  try{ const c = await aplicarTabela2026(); const n = Object.values(c).reduce((t,x)=>t+x.n,0), u = Object.values(c).reduce((t,x)=>t+x.u,0); st.textContent = `✅ ${n} criados · ${u} preços actualizados.`; toast(`✅ Tabela 2026 aplicada: ${n} novos, ${u} preços actualizados.`); }
+  catch(e){ b.disabled = false; st.textContent = '⚠️ Erro: '+e.message; }
+}
+
 
 const MENU = [
   {sec:"Geral", items:[
@@ -1865,9 +1936,11 @@ async function finishSetup(){
     morada:"", telefone:"", email:"", nuit:"", horario:"", infoComplementar:""
   });
   auditSuspended = true;
+  const nomesT26 = new Set(TABELA_2026.esp.map(r=>xlNorm(r[0])));
   for(const nomeEsp of ESPECIALIDADES_SEED){
-    await Store.addDoc('especialidades', {nome: nomeEsp, preco: 0});
+    if(!nomesT26.has(xlNorm(nomeEsp))) await Store.setDoc('especialidades', 'seed'+ESPECIALIDADES_SEED.indexOf(nomeEsp), {nome: nomeEsp, preco: 0});
   }
+  await aplicarTabela2026({vazio:true});
   auditSuspended = false;
   audit('configuracao_inicial', 'Sistema', '', 'clínica configurada e '+ESPECIALIDADES_SEED.length+' especialidades criadas');
   const salt = newSalt();
@@ -1911,33 +1984,68 @@ async function doMigration(){
 function renderLogin(){
   el('auth-body').innerHTML = `
     <h2>Entrar no sistema</h2>
-    <div class="field" style="margin-top:18px;"><label>Utilizador</label><input id="login-user" type="text" autocapitalize="none" spellcheck="false" autocomplete="username"></div>
+    <div class="field" style="margin-top:18px;"><label>Utilizador (médicos: email)</label><input id="login-user" type="text" autocapitalize="none" spellcheck="false" autocomplete="username" placeholder="utilizador ou email do médico"></div>
     ${passField('login-pass','Password','current-password','doLogin()')}
     <button class="btn-primary" onclick="doLogin()">Entrar</button>
+    <div style="margin-top:12px;text-align:center;"><a href="#" style="font-size:12.5px;color:var(--muted,#667);" onclick="esqueciPassword();return false;">Sou médico e esqueci a password</a></div>
   `;
   setTimeout(()=>{ const i=el('login-user'); if(i) i.focus(); }, 50);
+}
+function loginFalhou(ref, motivo, msg){
+  loginFails++;
+  audit('login_falhado', 'Sessão', ref, motivo);
+  if(loginFails>=5){ loginBlockedUntil = Date.now()+30000; loginFails = 0; audit('login_bloqueado', 'Sessão', ref, '5 tentativas falhadas — bloqueio de 30 s'); }
+  toast(msg);
 }
 async function doLogin(){
   const now = Date.now();
   if(now < loginBlockedUntil){ toast(`⚠️ Demasiadas tentativas. Aguarde ${Math.ceil((loginBlockedUntil-now)/1000)}s.`); return; }
-  const username = normUser(el('login-user').value);
+  const entrada = el('login-user').value.trim();
   const pass = el('login-pass').value;
-  if(!username || !pass){ toast("⚠️ Introduza o utilizador e a password."); return; }
+  if(!entrada || !pass){ toast("⚠️ Introduza o utilizador e a password."); return; }
+  if(entrada.includes('@')) return doLoginMedico(entrada.toLowerCase(), pass);   // só os médicos entram com email
+  const username = normUser(entrada);
   const u = users.find(x=>x.username===username);
+  if(u && u.role==='medico'){ toast("⚠️ Os médicos entram com o email e a password."); return; }
   const ok = u && u.passwordHash && u.ativo!==false && hashPassword(pass, u.salt)===u.passwordHash;
-  if(!ok){
-    loginFails++;
-    audit('login_falhado', 'Sessão', username, 'utilizador ou password incorrectos');
-    if(loginFails>=5){ loginBlockedUntil = Date.now()+30000; loginFails = 0; audit('login_bloqueado', 'Sessão', username, '5 tentativas falhadas — bloqueio de 30 s'); }
-    toast("⚠️ Utilizador ou password incorrectos.");
-    return;
-  }
+  if(!ok){ loginFalhou(username, 'utilizador ou password incorrectos', "⚠️ Utilizador ou password incorrectos."); return; }
   loginFails = 0;
   await loginAs(u);
 }
+/* Médicos: autenticação por email e password. Com Firebase usa o Firebase Authentication (a password nunca fica na base de dados); em modo local (sem Firebase) usa o hash local. */
+async function doLoginMedico(email, pass){
+  const u = users.find(x=>x.role==='medico' && (x.email||'').toLowerCase()===email);
+  let ok = false;
+  if(u && u.ativo!==false){
+    if(USE_FIREBASE){
+      if(!fbAuth){ toast("⚠️ O módulo de autenticação do Firebase não carregou. Actualize a página (Ctrl+F5) e tente novamente."); return; }
+      if(!u.authOk && !u.authUid){ toast("⚠️ Esta conta de médico ainda não tem acesso por email. Peça ao Administrador para criar o acesso (Utilizadores → Editar)."); return; }
+      try{
+        const cred = await fbAuth.signInWithEmailAndPassword(email, pass);
+        ok = true;
+        if(!u.authUid){ u.authUid = cred.user.uid; Store.setDoc('users', u.id, {authUid:cred.user.uid, authOk:true}); }
+      }catch(e){
+        if(e.code==='auth/network-request-failed'){ toast("⚠️ Sem ligação à internet. Tente novamente."); return; }
+        if(e.code==='auth/too-many-requests'){ toast("⚠️ Demasiadas tentativas. Aguarde alguns minutos ou use «Sou médico e esqueci a password»."); return; }
+        if(e.code==='auth/operation-not-allowed'){ toast("⚠️ O início de sessão por email não está activo no Firebase (Authentication → Sign-in method → Email/Password)."); return; }
+      }
+    } else ok = !!(u.passwordHash && hashPassword(pass, u.salt)===u.passwordHash);
+  }
+  if(!ok){ loginFalhou(email, 'email ou password incorrectos', "⚠️ Email ou password incorrectos."); return; }
+  loginFails = 0;
+  await loginAs(u);
+}
+async function esqueciPassword(){
+  const em = (prompt("Email do médico para receber a ligação de redefinição da password:", (el('login-user')&&el('login-user').value.includes('@'))?el('login-user').value.trim():'')||'').trim().toLowerCase();
+  if(!em) return;
+  if(!USE_FIREBASE || !fbAuth){ toast("Em modo local peça ao Administrador para redefinir a password (Utilizadores → Editar)."); return; }
+  const u = users.find(x=>x.role==='medico' && (x.email||'').toLowerCase()===em && x.ativo!==false);
+  if(u && (u.authOk||u.authUid)){ try{ await fbAuth.sendPasswordResetEmail(em); audit('password_reset_email', 'Utilizador', em, 'email de redefinição enviado (pedido pelo médico)'); }catch(e){ console.warn(e); } }
+  toast("Se o email estiver registado como médico, vai receber a ligação para criar nova password (veja também o spam).", 8000);
+}
 async function loginAs(u){
   currentUser = u;
-  audit('login', 'Sessão', u.username||'', 'sessão iniciada');
+  audit('login', 'Sessão', u.username||u.email||'', 'sessão iniciada');
   startAuditListener();
   el('boot-screen').style.display = 'none';
   el('app').classList.add('active');
@@ -1958,8 +2066,9 @@ async function loginAs(u){
 }
 function applyBranding(){ if(!configDoc) return; document.title = (configDoc.nome||"Clínica Boa Visão") + " — Sistema de Gestão"; }
 function logout(){
-  if(currentUser) audit('logout', 'Sessão', currentUser.username||'', 'sessão terminada');
+  if(currentUser) audit('logout', 'Sessão', currentUser.username||currentUser.email||'', 'sessão terminada');
   stopAuditListener();
+  if(USE_FIREBASE && fbAuth) fbAuth.signOut().catch(()=>{});
   el('app').classList.remove('active');
   el('boot-screen').style.display = 'flex';
   currentUser = null; authMode = null; forcedPassChange = false;
@@ -2126,6 +2235,14 @@ function ncSetTipo(tipo){
   document.getElementById('nc-novo-box').style.display = tipo==='novo' ? '' : 'none';
   document.getElementById('modal-nova-consulta').dataset.tipo = tipo;
 }
+function ncFillMedicos(sel){
+  const box = el('nc-medico'), espId = el('nc-especialidade').value, ant = sel || box.value;
+  const docs = users.filter(u=>u.role==='medico'&&u.ativo!==false);
+  const op = u=>`<option value="${u.id}">${esc(u.nome)}${u.especialidadeId?' — '+esc(espNomeDe(u.especialidadeId)):''}${u.email?'':' (sem email)'}</option>`;
+  const certos = docs.filter(u=>u.especialidadeId && u.especialidadeId===espId), outros = docs.filter(u=>!certos.includes(u));
+  box.innerHTML = !docs.length ? `<option value="">— Nenhum médico cadastrado —</option>` : certos.length ? `<optgroup label="Desta especialidade">${certos.map(op).join('')}</optgroup>${outros.length?`<optgroup label="Outros médicos">${outros.map(op).join('')}</optgroup>`:''}` : docs.map(op).join('');
+  if(ant && docs.some(u=>u.id===ant)) box.value = ant;
+}
 function ncFillEntidades(){
   const emp = empresas.filter(e=>e.ativo!==false), seg = seguradoras.filter(x=>x.ativo!==false);
   el('nc-empresa').innerHTML = emp.map(e=>`<option value="${e.id}">${esc(e.nome)}</option>`).join('') || '<option value="">— Sem empresas registadas —</option>';
@@ -2136,7 +2253,7 @@ function openNovaConsulta(pre){
   resetNovaConsultaModal();
   el('nc-paciente').innerHTML = patients.map(p=>`<option value="${p.id}">${esc(p.nome)} — NID ${p.id}</option>`).join("");
   el('nc-especialidade').innerHTML = especialidades.map(e=>`<option value="${e.id}">${esc(e.nome)}</option>`).join("");
-  el('nc-medico').innerHTML = users.filter(u=>u.role==='medico'&&u.ativo!==false).map(u=>`<option value="${u.id}">${esc(u.nome)}${u.email?'':' (sem email)'}</option>`).join("") || `<option value="">— Nenhum médico cadastrado —</option>`;
+  ncFillMedicos();
   el('nc-data').value = todayStr();
   el('nc-obs').value = "";
   ['nc-novo-nome','nc-novo-idade','nc-novo-contacto','nc-novo-morada','nc-referencia','nc-cartao','nc-autorizacao'].forEach(id=>el(id).value='');
@@ -2144,7 +2261,7 @@ function openNovaConsulta(pre){
   ncSetTipo('existente');
   if(pre){
     if(pre.nid) el('nc-paciente').value = pre.nid;
-    if(pre.espId) el('nc-especialidade').value = pre.espId;
+    if(pre.espId){ el('nc-especialidade').value = pre.espId; ncFillMedicos(); }
     el('modal-nova-consulta').dataset.refId = pre.refId || '';
   }
   ncSetPagador('individual');
@@ -2314,7 +2431,7 @@ function openCheckin(apptId){
 
 /* ================= IMPORTAÇÃO DE FICHEIROS EXCEL (administrador) ================= */
 const XL_TIPOS = {
-  pacientes:{nome:'Pacientes', cols:[['nid','NID',1,'1001'],['nome','Nome',1,'Maria José Chuni'],['idade','Idade',0,'34'],['sexo','Sexo',0,'F'],['contacto','Contacto',0,'841234567'],['morada','Morada',0,'Mocuba'],['ocupacao','Ocupação',0,'Professora'],['bi','BI',0,''],['nuit','NUIT',0,'']]},
+  pacientes:{nome:'Pacientes', cols:[['nid','NID',1,'1001'],['nome','Nome',1,'Maria José Chuni'],['idade','Idade',0,'34'],['sexo','Sexo',0,'F'],['contacto','Contacto',0,'841234567'],['morada','Morada',0,'Mocuba'],['ocupacao','Ocupação',0,'Professora'],['bi','BI',0,''],['nuit','NUIT',0,''],['historicoClinico','Historial clínico',0,'Cirurgia de catarata OD em 2021']]},
   despesas:{nome:'Despesas', cols:[['data','Data',0,'2026-11-05'],['categoria','Categoria',1,'Renda'],['descricao','Descrição',1,'Renda de Novembro'],['fornecedor','Fornecedor',0,'Imobiliária X'],['fornecedorNuit','NUIT do fornecedor',0,''],['docFornecedor','Documento do fornecedor',0,'FT-123'],['base','Valor base',1,'25000'],['iva','IVA %',0,'0'],['estado','Estado (Paga/Pendente)',0,'Paga'],['metodo','Método de pagamento',0,'Numerário'],['ref','Referência',0,'']]},
   especialidades:{nome:'Especialidades (com preço da consulta)', cat:'', cat_:'catalogo', cols:[['nome','Nome',1,'Oftalmologia'],['preco','Preço da consulta',1,'500']]},
   tratamentos:{nome:'Tratamentos e procedimentos (com preços)', cols:[['nome','Nome',1,'Laser retina'],['categoria','Categoria (Tratamento/Procedimento/Enfermagem/Diária de internamento)',0,'Procedimento'],['preco','Preço',1,'2000'],['especialidades','Especialidades (separadas por ;)',0,'Oftalmologia']]},
@@ -2376,7 +2493,7 @@ async function xlLer(){
         if(!nid || !nome) return erro('NID e nome são obrigatórios.');
         if(nids.has(nid) || vistos.has(nid)) return erro(`NID ${nid} já existe (não é alterado).`);
         vistos.add(nid); const idade = xlNum(o.idade);
-        ok.push({id:nid, nid, nome, idade: isNaN(idade)?null:Math.round(idade), sexo:String(o.sexo||'').trim().toUpperCase().slice(0,1), contacto:String(o.contacto||'').trim(), morada:String(o.morada||'').trim(), ocupacao:String(o.ocupacao||'').trim(), bi:String(o.bi||'').trim(), nuit:String(o.nuit||'').trim(), sangue:'—', emergNome:'', emergParent:'', emergTel:'', alergias:'—', registadoPor:currentUser.nome, obs:'Importado de ficheiro Excel.'});
+        ok.push({id:nid, nid, nome, idade: isNaN(idade)?null:Math.round(idade), sexo:String(o.sexo||'').trim().toUpperCase().slice(0,1), contacto:String(o.contacto||'').trim(), morada:String(o.morada||'').trim(), ocupacao:String(o.ocupacao||'').trim(), bi:String(o.bi||'').trim(), nuit:String(o.nuit||'').trim(), sangue:'—', emergNome:'', emergParent:'', emergTel:'', alergias:'—', registadoPor:currentUser.nome, obs:'Importado de ficheiro Excel.', historicoClinico:String(o.historicoClinico||'').trim()});
       } else if(tipo==='despesas'){
         const base = xlNum(o.base), d = xlData(o.data), cat = String(o.categoria||'').trim(), desc = String(o.descricao||'').trim();
         if(!cat || !desc) return erro('Categoria e descrição são obrigatórias.');
@@ -2572,46 +2689,167 @@ function compCaixaHtml(inv){
   const o = tratamentosPrescritos.find(x=>x.id===inv.ordemId); if(!o) return '';
   return (o.itens||[]).filter(it=>temComposicao(compDoItem(it))).map(it=>`<details style="margin-bottom:8px;"><summary style="cursor:pointer;font-size:13px;"><b>${esc(it.nome)}</b>${it.quantidade>1?' ×'+it.quantidade+' (composição por unidade)':''} — composição do preço</summary>${compHtml(compDoItem(it), it.precoRef)}</details>`).join('');
 }
+/* ---- Caixa: quem paga (paciente, empresa com requisição, seguro com cartão) — mesmo que o paciente não esteja registado na entidade ---- */
+let cxSt = null;
+function cxCalcular(inv, pg){
+  const nid = inv.pacienteNid, ent = entidadeDoPagador(pg);
+  if(inv.apptId && inv.tipo==='Consulta'){
+    const a = appointments.find(x=>x.id===inv.apptId), esp = a ? especialidadeById(a.especialidadeId) : null;
+    if(esp){
+      const c = calcPreco(pg, 'consulta', esp.id, esp.preco, nid, inv.id);
+      return {ok:true, valor:c.valor, precoReferencia:c.precoReferencia, valorEntidade:c.valorEntidade, valorPaciente:c.valorPaciente,
+        itens:(inv.itens||[]).map((it,k)=>k===0 ? {...it, precoUnit:c.valor, subtotal:c.valor} : it),
+        avisos:[c.naoCoberto ? 'Não coberto: '+c.motivoNaoCoberto+' — fica a cargo do paciente' : '', c.limiteExcedido ? 'Limite anual atingido — o excedente fica a cargo do paciente' : ''].filter(Boolean)};
+    }
+  }
+  if(inv.ordemId){
+    const tipo = inv.ordemTipo, ordem = ordemLista(tipo).find(o=>o.id===inv.ordemId);
+    if(ordem){
+      let usado = 0; const avisos = [];
+      const its = (ordem.itens||[]).map(it=>{
+        const {naoCoberto:_nc, ...base} = it, pu = precoContratual(ent, tipo, it.catId, it.precoRef), sub = r2(pu*(Number(it.quantidade)||1)), cv = dividirCobertura(sub, pg, tipo, it.catId, nid, null, usado, inv.id);
+        usado += cv.valorEntidade; if(cv.naoCoberto) avisos.push(`${it.nome}: não coberto (${cv.motivoNaoCoberto})`);
+        return {...base, precoUnit:pu, subtotal:sub, valorEntidade:cv.valorEntidade, valorPaciente:cv.valorPaciente, ...(cv.naoCoberto ? {naoCoberto:cv.motivoNaoCoberto} : {})};
+      });
+      const total = r2(its.reduce((t,x)=>t+x.subtotal,0)), ve = r2(its.reduce((t,x)=>t+x.valorEntidade,0));
+      return {ok:true, valor:total, precoReferencia:r2(its.reduce((t,x)=>t+(Number(x.precoRef)||0)*(Number(x.quantidade)||1),0)), valorEntidade:ve, valorPaciente:r2(total-ve),
+        itens:its.map(x=>({nome:x.nome, quantidade:x.quantidade, precoUnit:x.precoUnit, subtotal:x.subtotal})), ordemItens:its, avisos};
+    }
+  }
+  return {ok:false};
+}
+function cxPagadorHtml(){
+  const emp = empresas.filter(e=>e.ativo!==false), seg = seguradoras.filter(e=>e.ativo!==false);
+  return `<div class="field"><label>Forma de pagamento</label>
+    <div class="toggle-row" style="margin-bottom:0;">
+      <button class="toggle-btn" id="cx-t-individual" onclick="cxTipo('individual')">Numerário / POS / Carteira móvel</button>
+      <button class="toggle-btn" id="cx-t-empresa" onclick="cxTipo('empresa')">🏢 Empresa (requisição)</button>
+      <button class="toggle-btn" id="cx-t-seguradora" onclick="cxTipo('seguradora')">🛡 Seguro (cartão)</button>
+    </div></div>
+    <div id="cx-box-empresa" class="mini-form" style="display:none;margin-bottom:10px;">
+      <div class="field-row"><div class="field"><label>Empresa</label><select id="cx-empresa" onchange="cxRecalc()">${emp.map(e=>`<option value="${e.id}">${esc(e.nome)}</option>`).join('') || '<option value="">— Sem empresas registadas —</option>'}</select></div>
+        <div class="field"><label>Nº da requisição da empresa</label><input id="cx-req" type="text" autocomplete="off" oninput="cxRecalc()"></div></div>
+      <div class="cell-sub">O paciente não precisa de estar registado na empresa: a requisição apresentada basta. Fica facturado à empresa automaticamente.</div></div>
+    <div id="cx-box-seguradora" class="mini-form" style="display:none;margin-bottom:10px;">
+      <div class="field-row"><div class="field"><label>Seguradora</label><select id="cx-seguradora" onchange="cxFillPlanos();cxRecalc()">${seg.map(e=>`<option value="${e.id}">${esc(e.nome)}</option>`).join('') || '<option value="">— Sem seguradoras registadas —</option>'}</select></div>
+        <div class="field"><label>Plano</label><select id="cx-plano" onchange="cxRecalc()"></select></div></div>
+      <div class="field-row"><div class="field"><label>Nº do cartão / apólice</label><input id="cx-cartao" type="text" autocomplete="off" oninput="cxRecalc()"></div>
+        <div class="field"><label>Nº de autorização</label><input id="cx-aut" type="text" autocomplete="off" oninput="cxRecalc()"></div></div>
+      <div class="cell-sub">O paciente não precisa de estar registado na seguradora: o cartão apresentado basta. A seguradora paga a sua comparticipação e o paciente só o restante.</div></div>`;
+}
+function cxFillPlanos(sel){
+  const sg = seguradoras.find(x=>x.id===el('cx-seguradora').value);
+  el('cx-plano').innerHTML = ((sg && sg.planos) || []).map((p,k)=>`<option value="${k}">${esc(p.nome)} — ${p.comparticipacao}%</option>`).join('') || '<option value="">— Sem planos —</option>';
+  if(sel!==undefined) el('cx-plano').value = String(sel);
+}
+function cxTipo(t, pg0){
+  if(!cxSt) return; cxSt.tipo = t;
+  ['individual','empresa','seguradora'].forEach(k=>{ const b = el('cx-t-'+k); if(b) b.classList.toggle('active', k===t); });
+  el('cx-box-empresa').style.display = t==='empresa' ? '' : 'none'; el('cx-box-seguradora').style.display = t==='seguradora' ? '' : 'none';
+  if(t==='empresa' && pg0 && pg0.tipo==='empresa'){ el('cx-empresa').value = pg0.entidadeId; el('cx-req').value = pg0.requisicao || pg0.referencia || ''; }
+  if(t==='seguradora'){
+    if(pg0 && pg0.tipo==='seguradora'){ el('cx-seguradora').value = pg0.entidadeId; const sg = seguradoras.find(x=>x.id===pg0.entidadeId); cxFillPlanos(Math.max(0, ((sg&&sg.planos)||[]).findIndex(p=>p.nome===pg0.planoNome))); el('cx-cartao').value = pg0.cartao||''; el('cx-aut').value = pg0.autorizacao||''; }
+    else if(!el('cx-plano').innerHTML) cxFillPlanos();
+  }
+  cxRecalc();
+}
+function cxPagador(soft){
+  const t = cxSt.tipo, nid = cxSt.inv.pacienteNid;
+  if(t==='empresa'){
+    const e = empresas.find(x=>x.id===el('cx-empresa').value);
+    if(!e) return {erro:'Escolha a empresa (o Administrador cadastra as empresas).'};
+    const req = el('cx-req').value.trim();
+    const orig = cxSt.inv.pagador || {tipo:'individual'}, jaAssim = orig.tipo==='empresa' && orig.entidadeId===e.id;   // já definido na marcação: não pede de novo a requisição
+    if(!soft){ if(!req && !jaAssim) return {erro:'Indique o nº da requisição da empresa.'}; const a = acordoValido(e); if(!a.ok) return {erro:`${e.nome}: ${a.motivo}.`}; }
+    const b = nid ? beneficiarioAtivoDe(nid) : null;
+    return {pagador:{tipo:'empresa', entidadeId:e.id, entidadeNome:e.nome, nuit:e.nuit||'', beneficiarioId:(b&&b.entidadeId===e.id)?b.id:'', comparticipacao:(e.comparticipacao===undefined||e.comparticipacao===null||e.comparticipacao==='')?100:Number(e.comparticipacao), ...(req ? {requisicao:req} : {})}};
+  }
+  if(t==='seguradora'){
+    const sg = seguradoras.find(x=>x.id===el('cx-seguradora').value);
+    if(!sg) return {erro:'Escolha a seguradora (o Administrador cadastra as seguradoras).'};
+    const pl = (sg.planos||[])[Number(el('cx-plano').value)];
+    if(!pl) return {erro:'Escolha o plano de saúde.'};
+    const cartao = el('cx-cartao').value.trim(), aut = el('cx-aut').value.trim();
+    const orig = cxSt.inv.pagador || {tipo:'individual'}, jaAssim = orig.tipo==='seguradora' && orig.entidadeId===sg.id;
+    if(!soft){ if(!cartao && !jaAssim) return {erro:'Indique o nº do cartão / apólice.'}; if(sg.exigeAutorizacao && !aut) return {erro:'Esta seguradora exige o número de autorização.'}; const a = acordoValido(sg); if(!a.ok) return {erro:`${sg.nome}: ${a.motivo}.`}; }
+    const b = nid ? beneficiarioAtivoDe(nid) : null;
+    return {pagador:{tipo:'seguradora', entidadeId:sg.id, entidadeNome:sg.nome, nuit:sg.nuit||'', planoNome:pl.nome, beneficiarioId:(b&&b.entidadeId===sg.id)?b.id:'', comparticipacao:Number(pl.comparticipacao)||0, cartao, autorizacao:aut}};
+  }
+  return {pagador:{tipo:'individual'}};
+}
+function cxRecalc(){
+  if(!cxSt) return;
+  const inv = cxSt.inv, pr = cxSt.podeMudar ? cxPagador(true) : {pagador:inv.pagador||{tipo:'individual'}}, pg = pr.pagador || {tipo:'individual'};
+  let c = cxSt.podeMudar ? cxCalcular(inv, pg) : {ok:false};
+  if(!c.ok) c = {valor:Number(inv.valor)||0, precoReferencia:inv.precoReferencia, valorEntidade:Number(inv.valorEntidade)||0, valorPaciente:valorPacienteDe(inv), itens:inv.itens, avisos:[]};
+  cxSt.pg = pg; cxSt.c = c;
+  const ve = c.valorEntidade, vp = c.valorPaciente;
+  el('cx-resumo').innerHTML = `${pg.tipo!=='individual' ? `<div class="muted-note" style="margin-bottom:10px;">${pg.requisicao?'Requisição nº <b>'+esc(pg.requisicao)+'</b> · ':''}${pg.cartao?'Cartão / apólice <b>'+esc(pg.cartao)+'</b> · ':''}${pg.autorizacao?'Autorização <b>'+esc(pg.autorizacao)+'</b> · ':''}${esc(pagLabel(pg))} · comparticipação ${pg.comparticipacao}%</div>` : ''}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+      <div class="price-chip">Total: ${fmtMZN(c.valor)}</div>
+      ${ve>0?`<div class="price-chip" style="background:var(--primary-tint);color:var(--primary-2);">${pg.tipo==='empresa'?'🏢':'🛡'} ${esc(pg.entidadeNome||'Entidade')}: ${fmtMZN(ve)}</div>`:''}
+      <div class="price-chip" style="background:var(--ok-tint);color:var(--ok);">Paciente paga: ${fmtMZN(vp)}</div>
+    </div>
+    ${(c.avisos||[]).map(a=>`<div class="muted-note" style="margin-bottom:6px;border-color:var(--danger-tint);background:var(--danger-tint);color:var(--danger);">⚠ ${esc(a)}</div>`).join('')}`;
+  const w = el('cx-pm-wrap');
+  if(cxSt.vp!==vp || !w.innerHTML){
+    cxSt.vp = vp;
+    w.innerHTML = vp>0 ? `<div class="field"><label>${ve>0?'Parte do paciente — forma(s) de pagamento':'Numerário / POS / Carteira móvel (pode dividir)'}</label>${pmHtml('pg-pm')}</div>`
+      : `<div class="muted-note">O paciente não paga neste momento. Será emitida a factura em duplicado para o paciente assinar, e fica a cobrar à entidade no fim do mês.</div>`;
+    if(vp>0) pmInit('pg-pm', vp);
+  }
+  el('pagamento-confirm').textContent = ve>0 ? 'Emitir factura em duplicado' : 'Confirmar pagamento e emitir VD';
+}
 function openPagamento(invId){
   if(!['admin','recepcao'].includes(currentUser.role)) return;   // a recepção (Caixa) emite os documentos
   const inv = invoices.find(x=>x.id===invId);
   if(!inv) return;
-  const pg = inv.pagador || {tipo:'individual'}, ve = Number(inv.valorEntidade)||0, vp = valorPacienteDe(inv);
+  const pg0 = inv.pagador || {tipo:'individual'}, podeMudar = !!cxCalcular(inv, pg0).ok && inv.estado==='Pendente';
+  cxSt = {inv, podeMudar, tipo:pg0.tipo, vp:null};
   el('pagamento-body').innerHTML = `
-    <div class="doc-grid" style="font-size:13px;margin-bottom:12px;"><div><b>Paciente:</b> ${esc(inv.pacienteNome||'—')}</div><div><b>Tipo:</b> ${esc(pagLabel(pg))}</div></div>
-    ${pg.tipo!=='individual' ? `<div class="muted-note" style="margin-bottom:12px;">${pg.cartao?'Cartão / apólice: <b>'+esc(pg.cartao)+'</b> · ':''}${pg.autorizacao?'Autorização: <b>'+esc(pg.autorizacao)+'</b> · ':''}${pg.referencia?'Referência: <b>'+esc(pg.referencia)+'</b> · ':''}Comparticipação ${pg.comparticipacao}%</div>` : ''}
+    <div class="doc-grid" style="font-size:13px;margin-bottom:12px;"><div><b>Paciente:</b> ${esc(inv.pacienteNome||'—')}</div><div><b>Tipo:</b> ${esc(pagLabel(pg0))}</div></div>
     <div style="font-size:13px;margin-bottom:10px;">${esc(inv.servico)}</div>
+    ${podeMudar ? cxPagadorHtml() : ''}
+    <div id="cx-resumo"></div>
     ${compCaixaHtml(inv)}
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
-      <div class="price-chip">Total: ${fmtMZN(inv.valor)}</div>
-      ${ve>0?`<div class="price-chip" style="background:var(--primary-tint);color:var(--primary-2);">Entidade: ${fmtMZN(ve)}</div>`:''}
-      <div class="price-chip" style="background:var(--ok-tint);color:var(--ok);">Paciente paga: ${fmtMZN(vp)}</div>
-    </div>
-    ${vp>0 ? `<div class="field"><label>Forma(s) de pagamento</label>${pmHtml('pg-pm')}</div>`
-      : `<div class="muted-note">O paciente não paga neste momento. Será emitida a factura em duplicado para o paciente assinar, e fica a cobrar à entidade no fim do mês.</div>`}`;
-  if(vp>0) pmInit('pg-pm', vp);
-  el('pagamento-confirm').textContent = ve>0 ? 'Emitir factura em duplicado' : 'Confirmar pagamento e emitir VD';
+    <div id="cx-pm-wrap"></div>`;
+  if(podeMudar) cxTipo(pg0.tipo, pg0); else cxRecalc();
   el('pagamento-confirm').onclick = async ()=>{
+    const inv = cxSt.inv; let pg = cxSt.pg, c = cxSt.c;
+    if(cxSt.podeMudar){
+      const pr = cxPagador(false); if(pr.erro){ toast('⚠️ '+pr.erro); return; }
+      pg = pr.pagador; c = cxCalcular(inv, pg);
+    }
+    const ve = c.valorEntidade, vp = c.valorPaciente;
     const pm = vp>0 ? pmLer('pg-pm', vp) : {pagamentos:[], metodo:'Conta a crédito', refPagamento:''};
     if(pm.erro){ toast('⚠️ '+pm.erro); return; }
     const metodo = pm.metodo, refPag = pm.refPagamento;
     try{ await Store.claim('invoices', inv.id, 'estado', 'Pendente', 'Pago'); }
     catch(e){ closeModal('modal-pagamento'); toast("⚠️ Este documento já foi emitido ou anulado (talvez noutro posto de caixa)."); return; }
+    const o0 = inv.pagador || {tipo:'individual'}, mudou = !(pg.tipo===o0.tipo && (pg.entidadeId||'')===(o0.entidadeId||'') && (pg.planoNome||'')===(o0.planoNome||'') && (pg.requisicao||'')===(o0.requisicao||'') && (pg.cartao||'')===(o0.cartao||'') && (pg.autorizacao||'')===(o0.autorizacao||''));
+    if(!mudou) pg = {...o0, ...pg};
+    if(pg.tipo!=='individual' && !pg.beneficiarioId && inv.pacienteNid){   // associação paciente ↔ entidade criada no Caixa (o administrador valida depois)
+      pg = {...pg, beneficiarioId: await Store.addDoc('beneficiarios', {pacienteNid:inv.pacienteNid, pacienteNome:inv.pacienteNome||'', entidadeTipo:pg.tipo, entidadeId:pg.entidadeId, entidadeNome:pg.entidadeNome,
+        plano:pg.planoNome||'', cartao:pg.cartao||'', titular:'', validadeInicio:'', validadeFim:'', limiteAnual:0, ativo:true, origem:'caixa', validado:false, criadoPor:currentUser.nome, criadoEm:new Date().toISOString()})};
+    }
     const tipoDoc = ve>0 ? 'Factura' : 'VD';
     const agora = new Date().toISOString();
     const upd = {numero: await docSeq(tipoDoc==='VD'?'VD':'FT'), tipoDoc, estado:'Pago', metodo, pagamentos:pm.pagamentos, refPagamento:refPag, pagoEm:agora, pagoPor:currentUser.nome,
-      emitidaEm:agora, emitidaPor:currentUser.nome, valorPaciente:vp, valorEntidade:ve, estadoEntidade: ve>0 ? 'Pendente' : ''};
+      emitidaEm:agora, emitidaPor:currentUser.nome, valorPaciente:vp, valorEntidade:ve, estadoEntidade: ve>0 ? 'Pendente' : '', pagador:pg,
+      ...(mudou ? {valor:c.valor, itens:c.itens, ...(c.precoReferencia!==undefined ? {precoReferencia:c.precoReferencia} : {}), pagadorAlteradoNoCaixa:true} : {})};
     await Store.setDoc('invoices', inv.id, upd);
     if(inv.apptId){
       const a = appointments.find(x=>x.id===inv.apptId);
-      if(a && a.estado==='Aguarda pagamento') await Store.setDoc('appointments', a.id, {estado:"Confirmada", estadoPagamento: vp>0 ? "Pago" : "A crédito"});
+      if(a && a.estado==='Aguarda pagamento') await Store.setDoc('appointments', a.id, {estado:"Confirmada", estadoPagamento: vp>0 ? "Pago" : "A crédito",
+        ...(mudou ? {pagador:pg, preco:c.valor, valorEntidade:ve, valorPaciente:vp, ...(c.precoReferencia!==undefined ? {precoReferencia:c.precoReferencia} : {})} : {})});
     }
     if(inv.ordemId){   // tratamento ou exames: a confirmação no Caixa liberta a execução
-      await Store.setDoc(inv.ordemTipo==='tratamento' ? 'tratamentosPrescritos' : 'pedidosExame', inv.ordemId, {estado:"Pago", pagoEm:agora, factura:upd.numero});
+      await Store.setDoc(inv.ordemTipo==='tratamento' ? 'tratamentosPrescritos' : 'pedidosExame', inv.ordemId, {estado:"Pago", pagoEm:agora, factura:upd.numero,
+        ...(mudou && c.ordemItens ? {pagador:pg, itens:c.ordemItens, total:c.valor} : {})});
     }
-    audit('documento_emitido', 'Factura', upd.numero, `${tipoDoc} · ${fmtMZN(inv.valor)} · paciente ${fmtMZN(vp)}${ve>0?' · entidade '+fmtMZN(ve):''} · ${metodo}`);
+    audit('documento_emitido', 'Factura', upd.numero, `${tipoDoc} · ${fmtMZN(c.valor)} · paciente ${fmtMZN(vp)}${ve>0?' · entidade '+fmtMZN(ve)+' ('+pagLabel(pg)+(pg.requisicao?' · requisição '+pg.requisicao:'')+(pg.cartao?' · cartão '+pg.cartao:'')+')':''} · ${metodo}${mudou?' · pagador definido no Caixa':''}`);
     closeModal('modal-pagamento');
-    toast(`✅ ${tipoDoc==='VD'?'VD':'Factura'} ${upd.numero} emitida. Consulta confirmada.`);
+    toast(`✅ ${tipoDoc==='VD'?'VD':'Factura'} ${upd.numero} emitida${ve>0?' e facturada a '+esc(pg.entidadeNome):''}.`);
     imprimirDocumentoCaixa({...inv, ...upd}, false);
   };
   openModal('modal-pagamento');
@@ -2680,8 +2918,12 @@ function openPatientModal(nid){
   if(currentUser.role==='medico' && (!nid || !canSeePatient(nid))){ toast("⚠️ Só a recepção regista novos pacientes."); return; }
   const p = nid ? patientByNid(nid) : null;
   document.getElementById('patient-modal-title').textContent = p ? "Editar paciente" : "Novo paciente";
-  document.getElementById('pf-nid').value = p ? p.id : nextNid();
-  document.getElementById('pf-nid').readOnly = !!p;
+  document.getElementById('pf-nid').value = p ? p.id : '';
+  document.getElementById('pf-nid').placeholder = p ? '' : 'automático';
+  document.getElementById('pf-nid').readOnly = !!p || currentUser.role!=='admin';   // o NID novo é atribuído pelo sistema (só o administrador pode impor um)
+  document.getElementById('pf-hist').value = p ? (p.historicoClinico||'') : '';
+  document.getElementById('pf-novo-nota').style.display = p ? 'none' : '';
+  document.getElementById('pf-outro').style.display = p ? 'none' : '';
   document.getElementById('pf-nome').value = p ? p.nome : '';
   document.getElementById('pf-idade').value = p ? (p.idade||'') : '';
   document.getElementById('pf-sexo').value = p ? (p.sexo||'Feminino') : 'Feminino';
@@ -2699,26 +2941,46 @@ function openPatientModal(nid){
   document.getElementById('modal-patient').dataset.isNew = p ? '' : '1';
   openModal('modal-patient');
 }
-async function savePatient(){
-  const nid = document.getElementById('pf-nid').value.trim();
-  if(currentUser.role==='medico' && !(patientByNid(nid) && canSeePatient(nid))){ toast("⚠️ Só a recepção regista novos pacientes."); return; }
-  const nome = document.getElementById('pf-nome').value.trim();
-  if(!nid || !nome){ toast("⚠️ Indique o NID e o nome do paciente."); return; }
+async function savePatient(outro){
   const isNew = document.getElementById('modal-patient').dataset.isNew === '1';
-  const existing = patientByNid(nid);
-  await Store.setDoc('patients', nid, {
-    nid, nome, idade: Number(document.getElementById('pf-idade').value)||null,
+  let nid = document.getElementById('pf-nid').value.trim();
+  if(currentUser.role==='medico' && (isNew || !(patientByNid(nid) && canSeePatient(nid)))){ toast("⚠️ Só a recepção regista novos pacientes."); return; }
+  const nome = document.getElementById('pf-nome').value.trim();
+  if(!nome || (!isNew && !nid)){ toast("⚠️ Indique o nome do paciente."); return; }
+  const existing = isNew ? null : patientByNid(nid), tel = document.getElementById('pf-tel').value.trim();
+  if(isNew){
+    if(nid && patientByNid(nid)){ toast(`⚠️ O NID ${esc(nid)} já existe.`); return; }
+    const sosia = patients.find(x=>xlNorm(x.nome)===xlNorm(nome) && (!tel || !(x.contacto||x.tel) || String(x.contacto||x.tel).replace(/\s/g,'')===tel.replace(/\s/g,'')));
+    if(sosia && !confirm(`Já existe um paciente com este nome (NID ${sosia.id}${sosia.contacto?', '+sosia.contacto:''}).\n\nRegistar mesmo assim, com um NID novo?`)) return;
+  }
+  const hist = document.getElementById('pf-hist').value.trim();
+  const dados = {
+    nome, idade: Number(document.getElementById('pf-idade').value)||null,
     sexo: document.getElementById('pf-sexo').value, sangue: document.getElementById('pf-sangue').value,
-    bi: document.getElementById('pf-bi').value, contacto: document.getElementById('pf-tel').value,
+    bi: document.getElementById('pf-bi').value, contacto: tel,
     nuit: document.getElementById('pf-nuit').value, morada: document.getElementById('pf-morada').value,
     ocupacao: document.getElementById('pf-ocup').value, emergNome: document.getElementById('pf-emerg-nome').value,
     emergParent: document.getElementById('pf-emerg-parent').value, emergTel: document.getElementById('pf-emerg-tel').value,
     alergias: document.getElementById('pf-alergias').value || "—", obs: document.getElementById('pf-obs').value,
-    registadoPor: (isNew || !existing) ? currentUser.nome : (existing.registadoPor || currentUser.nome)
-  });
+    historicoClinico: hist
+  };
+  if(hist !== ((existing && existing.historicoClinico) || '')){ dados.historicoClinicoPor = currentUser.nome; dados.historicoClinicoEm = new Date().toISOString(); }
+  if(isNew){
+    const base = {...dados, registadoPor: currentUser.nome, registadoEm: new Date().toISOString(), semConsulta: true};
+    let n = nid ? Number(nid) : nextNid(), feito = false;
+    for(let k=0;k<60 && !feito;k++){
+      const cand = nid ? nid : String(n+k);
+      try{ await Store.createOnce('patients', cand, {...base, nid:cand}); nid = cand; feito = true; }
+      catch(e){ if(nid){ toast(`⚠️ O NID ${esc(nid)} já existe.`); return; } }
+    }
+    if(!feito){ toast("⚠️ Não foi possível atribuir um NID. Tente de novo."); return; }
+    audit('paciente_registado', 'Paciente', nome, `NID ${nid} · registo de ficha, sem consulta e sem cobrança`);
+  } else {
+    await Store.setDoc('patients', nid, {...dados, nid, registadoPor: existing.registadoPor || currentUser.nome});
+  }
   closeModal('modal-patient');
-  toast(`✅ Paciente <b>${esc(nome)}</b> guardado (NID ${nid}).`);
-  if(isNew) printDoc(renderCartaoDoc(nid));
+  toast(isNew ? `✅ Ficha registada: <b>${esc(nome)}</b> — NID <b>${nid}</b> (sem consulta e sem cobrança).` : `✅ Paciente <b>${esc(nome)}</b> guardado (NID ${nid}).`, isNew ? 5000 : 2800);
+  if(isNew){ if(outro) openPatientModal(); else printDoc(renderCartaoDoc(nid)); }
 }
 async function runImport(){
   const file = document.getElementById('imp-file').files[0];
@@ -2816,7 +3078,7 @@ function openEditAppt(apptId){
   const a = appointments.find(x=>x.id===apptId);
   if(!a) return;
   document.getElementById('nc-especialidade').innerHTML = especialidades.map(e=>`<option value="${e.id}" ${e.id===a.especialidadeId?'selected':''}>${e.nome}</option>`).join("");
-  document.getElementById('nc-medico').innerHTML = users.filter(u=>u.role==='medico'&&u.ativo!==false).map(u=>`<option value="${u.id}" ${u.id===a.medicoId?'selected':''}>${u.nome}</option>`).join("");
+  ncFillMedicos(a.medicoId);
   document.getElementById('nc-data').value = a.data;
   document.getElementById('nc-hora').value = a.hora;
   document.getElementById('nc-tipo').value = a.tipo;
@@ -3024,6 +3286,7 @@ function viewProntuario(){
     <div class="card">
       <h3>Histórico clínico</h3>
       <div class="csub">Registos de todos os médicos que assistiram este paciente${isMed?' — partilhado entre os médicos que o atendem':''}</div>
+      ${p.historicoClinico ? `<div class="muted-note" style="margin-bottom:10px;white-space:pre-wrap;"><b>Historial anterior (ficha física)</b> · registado por ${esc(p.historicoClinicoPor||'—')}${p.historicoClinicoEm?' em '+fmtDate(p.historicoClinicoEm.slice(0,10)):''}<br>${esc(p.historicoClinico)}</div>` : ''}
       <div class="timeline">
         ${historico.length ? historico.map(h=>`
           <div class="tl-item">
@@ -4389,12 +4652,12 @@ function viewUtilizadores(){
   </div>
   <div class="card">
     <div class="table-wrap"><table>
-      <thead><tr><th>Nome</th><th>Utilizador</th><th>Email</th><th>Perfil</th><th>Estado</th><th></th></tr></thead>
+      <thead><tr><th>Nome</th><th>Utilizador</th><th>Email</th><th>Perfil / Especialidade</th><th>Estado</th><th></th></tr></thead>
       <tbody>${users.map(u=>`<tr>
         <td class="row-flex"><div class="avatar">${initials(u.nome)}</div><div class="cell-name">${esc(u.nome)}</div></td>
-        <td>${u.username ? esc(u.username) : '<span class="tag red">Sem acesso — definir utilizador e password</span>'}</td>
+        <td>${u.role==='medico' ? (acessoMedicoOk(u) ? '<span class="cell-sub">Entra com o email</span>' : '<span class="tag red">Sem acesso — criar acesso por email</span>') : (u.username ? esc(u.username) : '<span class="tag red">Sem acesso — definir utilizador e password</span>')}</td>
         <td>${u.email ? esc(u.email) : (u.role==='medico' ? '<span class="tag amber">Em falta</span>' : '<span class="cell-sub">—</span>')}</td>
-        <td><span class="tag blue">${roleName(u.role)}</span></td>
+        <td><span class="tag blue">${roleName(u.role)}</span>${u.role==='medico' ? `<div class="cell-sub">${u.especialidadeId ? esc(espNomeDe(u.especialidadeId)) : '<span style="color:#b45309;">Sem especialidade</span>'}</div>` : ''}</td>
         <td>${u.ativo===false?'<span class="tag red">Inactivo</span>':(u.mustChange?'<span class="tag amber">Aguarda 1.º acesso</span>':'<span class="tag green">Activo</span>')}</td>
         <td style="white-space:nowrap;">
           <button class="btn sm ghost" onclick="openUserModal('${u.id}')">Editar</button>
@@ -4405,6 +4668,8 @@ function viewUtilizadores(){
     </table></div>
   </div>`;
 }
+function espNomeDe(id){ const e = especialidades.find(x=>x.id===id); return e ? e.nome : ''; }
+function acessoMedicoOk(u){ return USE_FIREBASE ? !!(u.authOk||u.authUid) : !!u.passwordHash; }
 function openUserModal(id){
   const u = id ? userById(id) : null;
   const self = u && u.id===currentUser.id;
@@ -4414,7 +4679,9 @@ function openUserModal(id){
   el('uf-email').value = u ? (u.email||'') : '';
   el('uf-role').innerHTML = ROLES.map(r=>`<option value="${r.id}">${r.icon} ${r.name}</option>`).join("");
   el('uf-role').value = u ? u.role : 'recepcao';
-  const semAcesso = u && !u.passwordHash;
+  el('uf-esp').innerHTML = `<option value="">— Escolha a especialidade —</option>` + [...especialidades].sort((a,b)=>(a.nome||'').localeCompare(b.nome||'')).map(e=>`<option value="${e.id}">${esc(e.nome)}</option>`).join("");
+  el('uf-esp').value = u && u.especialidadeId ? u.especialidadeId : '';
+  const semAcesso = u && (u.role==='medico' ? !acessoMedicoOk(u) : !u.passwordHash);
   el('uf-pass').value = (!u || semAcesso) ? genTempPassword() : '';
   el('uf-pass-label').textContent = (!u || semAcesso) ? "Password inicial (8 dígitos)" : "Redefinir password (opcional — 8 dígitos)";
   el('uf-pass-box').style.display = self ? 'none' : '';
@@ -4423,32 +4690,90 @@ function openUserModal(id){
   openModal('modal-user');
 }
 function ufRoleChanged(){
-  el('uf-email-label').textContent = el('uf-role').value==='medico' ? 'Email do médico * (recebe as consultas marcadas)' : 'Email (opcional)';
+  const med = el('uf-role').value==='medico', editId = el('modal-user').dataset.editId, u = editId ? userById(editId) : null;
+  const comAuth = med && USE_FIREBASE && u && (u.authOk||u.authUid);   // médico que já tem conta no Firebase Authentication
+  el('uf-email-label').textContent = med ? 'Email do médico * (é com este email que entra no sistema)' : 'Email (opcional)';
+  el('uf-username-box').style.display = med ? 'none' : '';
+  el('uf-esp-box').style.display = med ? '' : 'none';
+  el('uf-email').disabled = !!comAuth;
+  el('uf-reset-box').style.display = comAuth ? '' : 'none';
+  el('uf-pass-box').style.display = (comAuth || (u && u.id===currentUser.id)) ? 'none' : '';
+}
+async function enviarResetMedico(){
+  const u = userById(el('modal-user').dataset.editId);
+  if(!u || !u.email) return;
+  if(!USE_FIREBASE || !fbAuth){ toast("⚠️ Sem Firebase Authentication neste momento."); return; }
+  try{ await fbAuth.sendPasswordResetEmail(u.email); audit('password_reset_email', 'Utilizador', u.email, 'email de redefinição enviado pelo administrador'); toast(`✅ Email de redefinição enviado para ${esc(u.email)}.`, 7000); }
+  catch(e){ toast("⚠️ Não foi possível enviar o email ("+(e.code||e.message)+")."); }
+}
+/* Cria a conta do médico no Firebase Authentication SEM terminar a sessão do administrador (usa uma 2.ª instância da aplicação). */
+async function criarContaAuth(email, pass){
+  const sec = firebase.apps.find(a=>a.name==='sec') || firebase.initializeApp(firebaseConfig, 'sec');
+  const a = sec.auth(); try{ a.setPersistence('none'); }catch(e){}
+  try{
+    const cred = await a.createUserWithEmailAndPassword(email, pass);
+    const uid = cred.user.uid; await a.signOut(); return {uid};
+  }catch(e){
+    if(e.code==='auth/email-already-in-use') return {uid:null, existente:true};
+    throw e;
+  }
+}
+function erroAuthMsg(e){
+  const c = (e && e.code) || '';
+  if(c==='auth/operation-not-allowed') return "O início de sessão por email não está activo no Firebase (Authentication → Sign-in method → Email/Password → Activar).";
+  if(c==='auth/invalid-email') return "O email não é válido.";
+  if(c==='auth/network-request-failed') return "Sem ligação à internet.";
+  if(c==='auth/weak-password') return "A password é demasiado fraca.";
+  return "Não foi possível criar a conta de acesso do médico ("+(c||e.message)+").";
 }
 async function saveUser(){
   const nome = el('uf-nome').value.trim();
-  const username = normUser(el('uf-username').value);
-  const role = el('uf-role').value;
+  const role = el('uf-role').value, med = role==='medico';
+  const username = med ? '' : normUser(el('uf-username').value);
   const editId = el('modal-user').dataset.editId;
   const existing = editId ? userById(editId) : null;
   const self = existing && existing.id===currentUser.id;
-  const pass = self ? '' : el('uf-pass').value.trim();
-  if(!nome){ toast("⚠️ Indique o nome completo."); return; }
-  if(!/^[a-z0-9._-]{3,30}$/.test(username)){ toast("⚠️ O utilizador deve ter 3–30 caracteres (letras, números, ponto, hífen ou _), sem espaços."); return; }
   const email = el('uf-email').value.trim().toLowerCase();
-  if(role==='medico' && !email){ toast("⚠️ Indique o email do médico."); return; }
+  const espId = med ? el('uf-esp').value : '';
+  const jaAuth = !!(med && USE_FIREBASE && existing && (existing.authOk||existing.authUid));
+  const pass = (self || jaAuth) ? '' : el('uf-pass').value.trim();
+  if(!nome){ toast("⚠️ Indique o nome completo."); return; }
+  if(!med && !/^[a-z0-9._-]{3,30}$/.test(username)){ toast("⚠️ O utilizador deve ter 3–30 caracteres (letras, números, ponto, hífen ou _), sem espaços."); return; }
+  if(med && !espId){ toast("⚠️ Escolha a especialidade do médico."); return; }
+  if(med && !email){ toast("⚠️ Indique o email do médico (é com ele que entra no sistema)."); return; }
   if(email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ toast("⚠️ O email não é válido."); return; }
-  if(users.some(u=>u.id!==editId && u.username===username)){ toast("⚠️ Este nome de utilizador já existe."); return; }
-  const precisaPass = !existing || !existing.passwordHash;
-  if((precisaPass || pass) && !/^\d{8}$/.test(pass)){ toast("⚠️ A password inicial deve ter exactamente 8 dígitos."); return; }
+  if(!med && users.some(u=>u.id!==editId && u.username===username)){ toast("⚠️ Este nome de utilizador já existe."); return; }
+  if(med && users.some(u=>u.id!==editId && u.role==='medico' && (u.email||'').toLowerCase()===email)){ toast("⚠️ Já existe um médico com este email."); return; }
+  const precisaPass = med ? (USE_FIREBASE ? !jaAuth : !existing || !existing.passwordHash) : (!existing || !existing.passwordHash);
+  if(!self && (precisaPass || pass) && !/^\d{8}$/.test(pass)){ toast("⚠️ A password inicial deve ter exactamente 8 dígitos."); return; }
   if(existing && existing.role==='admin' && role!=='admin' && activeAdmins().length<=1 && activeAdmins().some(a=>a.id===existing.id)){
     toast("⚠️ Tem de existir pelo menos um Administrador activo."); return;
   }
-  const data = {nome, username, role, email};
-  if(pass){ const salt = newSalt(); data.salt = salt; data.passwordHash = hashPassword(pass, salt); data.mustChange = true; data.pin = null; audit(existing ? 'password_redefinida' : 'password_inicial', 'Utilizador', username, 'password inicial definida pelo administrador'); }
+  const data = {nome, role, email};
+  if(med){ data.especialidadeId = espId; if(existing) data.username = null; }
+  else { data.username = username; if(existing && existing.role==='medico'){ data.especialidadeId = null; data.authUid = null; data.authOk = null; } }
+  let aviso = '';
+  if(pass){
+    if(med && USE_FIREBASE){
+      if(!fbAuth){ toast("⚠️ O módulo de autenticação do Firebase não carregou. Actualize a página (Ctrl+F5)."); return; }
+      try{
+        const r = await criarContaAuth(email, pass);
+        data.authOk = true; if(r.uid) data.authUid = r.uid;
+        data.salt = null; data.passwordHash = null; data.pin = null;
+        if(r.existente){ data.mustChange = false; aviso = 'Este email já tinha conta no Firebase Authentication: o médico entra com a password que já tinha (ou usa «Sou médico e esqueci a password»).'; }
+        else { data.mustChange = true; }
+        audit(existing ? 'acesso_medico_criado' : 'password_inicial', 'Utilizador', email, 'acesso por email criado no Firebase Authentication');
+      }catch(e){ toast("⚠️ "+erroAuthMsg(e), 9000); return; }
+    } else {
+      const salt = newSalt(); data.salt = salt; data.passwordHash = hashPassword(pass, salt); data.mustChange = true; data.pin = null;
+      audit(existing ? 'password_redefinida' : 'password_inicial', 'Utilizador', username||email, 'password inicial definida pelo administrador');
+    }
+  }
   if(existing) await Store.setDoc('users', editId, data); else await Store.addDoc('users', {...data, ativo:true});
   closeModal('modal-user');
-  if(pass) toast(`✅ Utilizador guardado. Entregue ao utilizador: <b>${esc(username)}</b> / password inicial <b>${pass}</b>`, 12000);
+  const entrada = med ? email : username;
+  if(aviso) toast("✅ Utilizador guardado. "+aviso, 12000);
+  else if(pass) toast(`✅ Utilizador guardado. Entregue: <b>${esc(entrada)}</b> / password inicial <b>${pass}</b>`, 12000);
   else toast("✅ Utilizador guardado.");
 }
 
@@ -4465,10 +4790,23 @@ function openChangePassword(forced){
 }
 async function saveChangePassword(){
   const novo = el('cp-novo').value, confirmar = el('cp-confirmar').value;
-  if(!forcedPassChange && hashPassword(el('cp-atual').value, currentUser.salt)!==currentUser.passwordHash){ toast("⚠️ Password actual incorrecta."); return; }
+  const viaAuth = USE_FIREBASE && currentUser.role==='medico' && fbAuth && fbAuth.currentUser;   // médicos: a password vive no Firebase Authentication
+  if(!viaAuth && !forcedPassChange && hashPassword(el('cp-atual').value, currentUser.salt)!==currentUser.passwordHash){ toast("⚠️ Password actual incorrecta."); return; }
   const perr = passwordError(novo);
   if(perr){ toast("⚠️ "+perr); return; }
   if(novo!==confirmar){ toast("⚠️ As passwords não coincidem."); return; }
+  if(viaAuth){
+    if(!forcedPassChange && el('cp-atual').value===novo){ toast("⚠️ A nova password deve ser diferente da actual."); return; }
+    try{
+      const fu = fbAuth.currentUser;
+      if(!forcedPassChange) await fu.reauthenticateWithCredential(firebase.auth.EmailAuthProvider.credential(fu.email, el('cp-atual').value));
+      await fu.updatePassword(novo);
+    }catch(e){ toast("⚠️ "+((e.code==='auth/wrong-password'||e.code==='auth/invalid-credential')?'Password actual incorrecta.':'Não foi possível alterar a password ('+(e.code||e.message)+').')); return; }
+    await Store.setDoc('users', currentUser.id, {mustChange:false});
+    audit('password_alterada', 'Utilizador', currentUser.email, 'o médico alterou a password (Firebase Authentication)');
+    currentUser.mustChange = false; forcedPassChange = false;
+    closeModal('modal-change-pass'); toast("✅ Password alterada com sucesso."); return;
+  }
   if(hashPassword(novo, currentUser.salt)===currentUser.passwordHash){ toast("⚠️ A nova password deve ser diferente da actual."); return; }
   const salt = newSalt(), passwordHash = hashPassword(novo, salt);
   await Store.setDoc('users', currentUser.id, {salt, passwordHash, mustChange:false, pin:null});
@@ -4500,7 +4838,7 @@ function viewConfig(){
   const c = configDoc || {};
   return `
   <div class="page-head"><div><h1>Configurações</h1><div class="desc">Dados da clínica e preferências do sistema</div></div></div>
-  ${currentUser.role==='admin' ? cardImportExcel() : ''}
+  ${currentUser.role==='admin' ? cardTabela2026()+cardImportExcel() : ''}
   <div class="grid-2">
     <div class="card">
       <h3>Dados da clínica</h3>
@@ -5249,7 +5587,7 @@ function htmlDocumentoCaixa(inv, via){
   const pg = inv.pagador || {tipo:'individual'}, ent = Number(inv.valorEntidade)||0, vp = valorPacienteDe(inv);
   const isVD = (inv.tipoDoc || (ent>0 ? 'Factura' : 'VD')) === 'VD';
   const tab = docItensTabela(inv) || `<table class="doc-table"><thead><tr><th>Serviço</th><th style="text-align:right;">Valor</th></tr></thead><tbody><tr><td>${esc(inv.servico)}</td><td style="text-align:right;">${fmtMZN(inv.valor)}</td></tr></tbody></table>`;
-  const pagInfo = pg.tipo==='individual' ? '' : `<div class="doc-section"><div class="lab">${pg.tipo==='empresa'?'Empresa responsável':'Seguradora'}</div><div style="font-size:12.5px;"><b>${esc(pg.entidadeNome)}</b>${pg.nuit?' · NUIT '+esc(pg.nuit):''}${pg.planoNome?'<br>Plano: '+esc(pg.planoNome):''}${pg.cartao?'<br>Cartão / apólice: '+esc(pg.cartao):''}${pg.autorizacao?'<br>Nº de autorização: '+esc(pg.autorizacao):''}${pg.referencia?'<br>Referência / guia: '+esc(pg.referencia):''}</div></div>`;
+  const pagInfo = pg.tipo==='individual' ? '' : `<div class="doc-section"><div class="lab">${pg.tipo==='empresa'?'Empresa responsável':'Seguradora'}</div><div style="font-size:12.5px;"><b>${esc(pg.entidadeNome)}</b>${pg.nuit?' · NUIT '+esc(pg.nuit):''}${pg.planoNome?'<br>Plano: '+esc(pg.planoNome):''}${pg.cartao?'<br>Cartão / apólice: '+esc(pg.cartao):''}${pg.autorizacao?'<br>Nº de autorização: '+esc(pg.autorizacao):''}${pg.requisicao?'<br>Requisição nº: '+esc(pg.requisicao):''}${pg.referencia?'<br>Referência / guia: '+esc(pg.referencia):''}</div></div>`;
   const totais = ent>0
     ? `<div class="doc-totais"><div><span>Total (preço contratual)</span><b>${fmtMZN(inv.valor)}</b></div><div><span>A cargo de ${esc(pg.entidadeNome)} (${pg.comparticipacao}%)</span><b>${fmtMZN(ent)}</b></div><div><span>A cargo do paciente</span><b>${fmtMZN(vp)}</b></div>${vp>0 && pagsDe(inv).length<2?`<div><span>Pago pelo paciente (${esc(inv.metodo)})</span><b>${fmtMZN(vp)}</b></div>`:''}</div>${vp>0 && pagsDe(inv).length>1 ? htmlPagamentos(inv) : ''}`
     : htmlPagamentos(inv);
