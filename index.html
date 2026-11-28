@@ -1478,14 +1478,14 @@ const Store = {
    -------------------------------------------------------------------- */
 const AUDIT_COLS = {patients:'Paciente', appointments:'Consulta', invoices:'Factura', users:'Utilizador', especialidades:'Especialidade',
   tratamentos:'Tratamento (catálogo)', exames:'Exame (catálogo)', tratamentosPrescritos:'Tratamento prescrito', pedidosExame:'Pedido de exames',
-  receitas:'Receita', prontuarios:'Prontuário', medicamentos:'Produto', vendas:'Venda', despesas:'Despesa', funcionarios:'Funcionário', requisicoes:'Requisição de pagamento', transferencias:'Envio de fundos', salarios:'Folha de salários', assiduidade:'Assiduidade', adiantamentos:'Adiantamento', feriasPlano:'Férias', disciplinares:'Procedimento disciplinar', fundoManeio:'Fundo de maneio', reconciliacoes:'Reconciliação bancária', apuramentosIva:'Apuramento do IVA', config:'Configuração',
+  receitas:'Receita', prontuarios:'Prontuário', medicamentos:'Produto', vendas:'Venda', despesas:'Despesa', funcionarios:'Funcionário', turnosRecepcao:'Entrega de turno (recepção)', requisicoes:'Requisição de pagamento', transferencias:'Envio de fundos', salarios:'Folha de salários', assiduidade:'Assiduidade', adiantamentos:'Adiantamento', feriasPlano:'Férias', disciplinares:'Procedimento disciplinar', fundoManeio:'Fundo de maneio', reconciliacoes:'Reconciliação bancária', apuramentosIva:'Apuramento do IVA', config:'Configuração',
   empresas:'Empresa', seguradoras:'Seguradora', internamentos:'Internamento', cardex:'Prescrição (cardex)', camas:'Cama', referenciacoes:'Encaminhamento', beneficiarios:'Beneficiário', recebimentos:'Recebimento de entidade', tratamentosInt:'Tratamento (internamento)', planos:'Plano terapêutico'};
 const AUDIT_KEYS = ['estado','estadoPagamento','valor','total','preco','stock','stockMin','role','ativo','metodo','username','tipo','data','hora','medicoId','salarioBase','faltasMes','nome','valorEntidade','valorPaciente','estadoEntidade','comparticipacao','tipoDoc','destino','internamentoId','entidadePago','validado','acordoFim','limiteAnual'];
 const AUDIT_HIDE = ['passwordHash','salt','pin'];
 let auditSuspended = false;
 function auditMem(col){
   return ({patients, appointments, invoices, users, especialidades, tratamentos, exames, tratamentosPrescritos, pedidosExame, receitas, prontuarios,
-    medicamentos, vendas, despesas, funcionarios, requisicoes, salarios, assiduidade, adiantamentos, feriasPlano, disciplinares, fundoManeio, reconciliacoes, apuramentosIva, empresas, seguradoras, internamentos, cardex, camas, referenciacoes, beneficiarios, tratamentosInt, planos, config:[configDoc]})[col] || null;
+    medicamentos, vendas, despesas, funcionarios, turnosRecepcao, requisicoes, salarios, assiduidade, adiantamentos, feriasPlano, disciplinares, fundoManeio, reconciliacoes, apuramentosIva, empresas, seguradoras, internamentos, cardex, camas, referenciacoes, beneficiarios, tratamentosInt, planos, config:[configDoc]})[col] || null;
 }
 function auditPick(col, o){
   const r = {};
@@ -1665,7 +1665,7 @@ function apgTodas(on){ apgLista().slice(0,300).filter(a=>!apgTemInternamento(a))
 /* ================= LIMPAR DADOS DE TESTE (mantém catálogos e perfis) ================= */
 const LIMPAR_GRUPOS = {
   clinico:{nome:'Pacientes e atendimento', txt:'pacientes, consultas, fila, prontuários, receitas, alertas, emails, pedidos de exames e tratamentos, internamentos (as camas ficam livres), encaminhamentos e beneficiários',
-    cols:['patients','appointments','queue','prontuarios','receitas','alertas','emails','tratamentosPrescritos','pedidosExame','referenciacoes','beneficiarios','internamentos','cardex','administracoes','diarioEnfermagem','sinaisVitais','passagensTurno','contasInt','tratamentosInt','internadosAtivos'], def:true},
+    cols:['patients','appointments','queue','prontuarios','receitas','alertas','emails','tratamentosPrescritos','pedidosExame','referenciacoes','beneficiarios','internamentos','cardex','administracoes','diarioEnfermagem','sinaisVitais','passagensTurno','turnosRecepcao','contasInt','tratamentosInt','internadosAtivos'], def:true},
   caixa:{nome:'Caixa e vendas', txt:'facturas, VD e recibos, vendas da farmácia, recebimentos de entidades e movimentos de stock', cols:['invoices','vendas','recebimentos','movimentosStock'], def:true},
   contab:{nome:'Contabilidade e RH de teste', txt:'despesas, requisições de pagamento, fundo de maneio, reconciliações, apuramentos de IVA, folhas de salários, assiduidade, adiantamentos, férias e procedimentos disciplinares (os funcionários ficam)', cols:['despesas','requisicoes','transferencias','anexos','fundoManeio','reconciliacoes','apuramentosIva','salarios','assiduidade','adiantamentos','feriasPlano','disciplinares','presenca'], def:false},
   numeracao:{nome:'Reiniciar a numeração', txt:'os números de pacientes (NID), facturas, receitas, etc. voltam a começar do 1', cols:['contadores'], def:true}
@@ -2096,6 +2096,154 @@ function reqImprimir(id){
     <div style="margin-top:10px;font-size:10px;">Impresso por ${esc(currentUser.nome)} em ${fmtDate(todayStr())}</div></div>`);
 }
 
+/* ================= ENTREGA DE TURNO DA RECEPÇÃO E DO CAIXA ================= */
+let turnosRecepcao = [];
+const ehRecep = ()=> !!currentUser && currentUser.role==='recepcao';
+function turnoUltimo(){ return turnosRecepcao.slice().sort((a,b)=>(b.em||'').localeCompare(a.em||''))[0] || null; }
+function turnoInicio(){ const u = turnoUltimo(); return u ? u.em : new Date(todayStr()+'T00:00:00').toISOString(); }
+function turnoParaMim(){ const u = turnoUltimo(); return u && u.estado==='Entregue' && currentUser && u.paraId===currentUser.id ? u : null; }
+function turnoSugerido(){ const h = new Date().getHours(); return h>=6&&h<14 ? 'Manhã' : (h>=14&&h<20 ? 'Tarde' : 'Noite'); }
+function turnoResumo(){
+  const desde = turnoInicio(), ult = turnoUltimo();
+  const docs = invoices.filter(i=>i.estado==='Pago' && i.numero && (i.pagoEm||i.emitidaEm||'')>desde), tm = totaisPorMetodo(docs);
+  const saldoInicial = ult ? (Number(ult.estado==='Aceite' && ult.recebidoContado!==undefined ? ult.recebidoContado : ult.numerarioContado)||0) : 0;
+  const recebido = {}; FORMAS_PAG.forEach(f=>{ recebido[f] = r2(tm[f]||0); });
+  Object.keys(tm).forEach(k=>{ if(recebido[k]===undefined) recebido[k] = r2(tm[k]); });
+  const pend = invoices.filter(i=>i.estado==='Pendente').sort((a,b)=>(a.data||'').localeCompare(b.data||'')).map(i=>({paciente:i.pacienteNome||'', nid:i.pacienteNid||'', servico:i.servico||'', valor:valorPacienteDe(i), entidade:(i.pagador&&i.pagador.entidadeNome)||''}));
+  const fila = queue.map(q=>{ const p = patientByNid(q.pacienteNid); return {senha:q.senha, paciente:p?p.nome:'', esp:q.especialidadeNome||'', estado:q.estado||''}; });
+  const int = internamentos.filter(i=>i.estado==='Internado').map(i=>({paciente:i.pacienteNome||'', cama:i.camaNome||''}));
+  return {desde, nDocs:docs.length, recebido, saldoInicial, esperado:r2(saldoInicial+(recebido['Numerário']||0)), pend, fila, int};
+}
+function turnoBadge(){
+  const n = turnoParaMim() ? 1 : 0;
+  document.querySelectorAll('.sb-item[data-view="turnorec"], .sb-item[data-turno="1"]').forEach(b=>{
+    b.querySelectorAll('.tr-badge').forEach(x=>x.remove());
+    if(n) b.insertAdjacentHTML('beforeend', ' <span class="tag red tr-badge" style="margin-left:6px;">1</span>');
+  });
+}
+function viewTurnoRecepcao(){
+  const r = turnoResumo(), para = turnoParaMim(), meu = ehRecep();
+  const dest = users.filter(u=>u.ativo!==false && u.id!==currentUser.id && (u.role==='recepcao' || (u.role==='enfermeiro' && u.acumulaRecepcao)));
+  const hist = turnosRecepcao.slice().sort((a,b)=>(b.em||'').localeCompare(a.em||'')).slice(0,15);
+  const chips = o => Object.entries(o).map(([k,v])=>`<div class="price-chip">${esc(k)}: ${fmtMZN(v)}</div>`).join('');
+  const lista = (arr, fn, vazio) => arr.length ? arr.map(fn).join('') : `<div class="cell-sub">${vazio}</div>`;
+  return `
+  <div class="page-head"><div><h1>Entrega de turno — Recepção e Caixa</h1><div class="desc">Quem sai entrega o caixa e todos os pendentes a quem assume o turno; quem entra confere e aceita</div></div></div>
+  ${para?`<div class="card" style="border-color:var(--warn,#b26a00);margin-bottom:14px;"><h3>📥 Tem um turno para receber</h3>
+    <div class="csub"><b>${esc(para.deNome)}</b> entregou-lhe o turno (${esc(para.turno)}) em ${new Date(para.em).toLocaleString('pt-PT')}. Numerário entregue: <b>${fmtMZN(para.numerarioContado)}</b> · ${(para.pendentes||[]).length} pendente(s) no caixa · ${(para.fila||[]).length} na fila.</div>
+    ${para.notas?`<div style="margin:6px 0;font-size:13px;"><b>Notas:</b> ${esc(para.notas)}</div>`:''}
+    ${meu?`<button class="btn solid" onclick="turnoAceitar('${para.id}')">Conferir o caixa e aceitar o turno</button>`:`<div class="cell-sub">Passe à Recepção (botão «Assumir Recepção e Caixa») para aceitar.</div>`}</div>`:''}
+  <div class="card"><h3>Situação do turno actual</h3><div class="csub">Desde ${new Date(r.desde).toLocaleString('pt-PT')} · ${r.nDocs} documento(s) emitido(s)</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0;">${chips(r.recebido)}<div class="price-chip">Saldo inicial (numerário): ${fmtMZN(r.saldoInicial)}</div><div class="price-chip" style="background:var(--ok-tint);color:var(--ok);">Numerário que deve existir: ${fmtMZN(r.esperado)}</div></div>
+    <div class="grid-2">
+      <div><h4 style="margin:6px 0;">Pendentes no Caixa (${r.pend.length})</h4>${lista(r.pend, p=>`<div style="font-size:13px;margin:3px 0;"><b>${esc(p.paciente)}</b> · ${esc(p.servico)} · ${fmtMZN(p.valor)}${p.entidade?' · '+esc(p.entidade):''}</div>`, 'Nada por confirmar no caixa.')}</div>
+      <div><h4 style="margin:6px 0;">Fila de espera (${r.fila.length})</h4>${lista(r.fila, q=>`<div style="font-size:13px;margin:3px 0;">#${esc(String(q.senha))} <b>${esc(q.paciente||'—')}</b> · ${esc(q.esp)} · ${esc(q.estado)}</div>`, 'Fila vazia.')}
+        <h4 style="margin:10px 0 6px;">Internados (${r.int.length})</h4>${lista(r.int, i=>`<div style="font-size:13px;margin:3px 0;">${esc(i.cama)} · <b>${esc(i.paciente)}</b></div>`, 'Sem internados.')}</div></div>
+    ${meu?`<h3 style="margin-top:16px;">Entregar o turno</h3>
+    <div class="field-row"><div class="field"><label>Turno que termina</label><select id="tr-turno">${['Manhã','Tarde','Noite'].map(t=>`<option ${t===turnoSugerido()?'selected':''}>${t}</option>`).join('')}</select></div>
+      <div class="field"><label>Quem recebe o turno *</label><select id="tr-recebe">${dest.map(u=>`<option value="${u.id}">${esc(u.nome)}</option>`).join('') || '<option value="">— Sem outros utilizadores de Recepção —</option>'}</select></div>
+      <div class="field"><label>Numerário contado e entregue (MZN) *</label><input id="tr-conta" type="number" step="0.01" value="${r.esperado}"></div></div>
+    <div class="field"><label>Justificação da diferença (obrigatória se o contado ≠ ${fmtMZN(r.esperado)})</label><input id="tr-just"></div>
+    <div class="field"><label>Notas e tarefas por acompanhar (chaves, doentes à espera de resultados, cobranças, etc.)</label><textarea id="tr-notas"></textarea></div>
+    <button class="btn solid" onclick="turnoEntregar()">Entregar o turno</button>`:`<div class="cell-sub" style="margin-top:10px;">Só a Recepção entrega e recebe turnos.</div>`}</div>
+  <div class="card" style="margin-top:14px;"><h3>Entregas anteriores</h3><div class="table-wrap"><table><thead><tr><th>Data e hora</th><th>Turno</th><th>Entregou</th><th>Recebeu</th><th>Numerário</th><th>Estado</th><th></th></tr></thead><tbody>
+    ${hist.map(h=>`<tr><td class="cell-sub">${new Date(h.em).toLocaleString('pt-PT')}</td><td>${esc(h.turno)}</td><td>${esc(h.deNome)}</td><td>${esc(h.paraNome)}</td>
+      <td>${fmtMZN(h.numerarioContado)}${Math.abs(h.diferenca||0)>0.004?`<div class="cell-sub" style="color:var(--danger,#c0392b)">dif. ${fmtMZN(h.diferenca)}: ${esc(h.justificacao||'')}</div>`:''}</td>
+      <td>${h.estado==='Aceite'?`<span class="tag green">Aceite</span><div class="cell-sub">${esc(h.recebidoPor||'')} · ${h.recebidoEm?new Date(h.recebidoEm).toLocaleString('pt-PT'):''}${h.divergenciaRecepcao?`<br><b style="color:var(--danger,#c0392b)">Divergência: contou ${fmtMZN(h.recebidoContado)} — ${esc(h.notaRecepcao||'')}</b>`:''}</div>`:'<span class="tag amber">Por aceitar</span>'}</td>
+      <td><button class="btn sm ghost" onclick="turnoImprimir('${h.id}')">🖶</button></td></tr>`).join('') || `<tr><td colspan="7"><div class="empty">Ainda sem entregas de turno.</div></td></tr>`}</tbody></table></div></div>`;
+}
+async function turnoEntregar(){
+  if(!ehRecep()) return;
+  const para = users.find(u=>u.id===el('tr-recebe').value);
+  if(!para){ toast('⚠️ Escolha quem recebe o turno.'); return; }
+  const r = turnoResumo(), conta = Number(el('tr-conta').value);
+  if(isNaN(conta) || conta<0){ toast('⚠️ Indique o numerário contado.'); return; }
+  const dif = r2(conta - r.esperado), just = el('tr-just').value.trim();
+  if(Math.abs(dif)>0.004 && !just){ toast(`⚠️ O contado difere do esperado em ${fmtMZN(dif)}. Escreva a justificação.`, 6000); return; }
+  const ult = turnoUltimo(); if(ult && ult.estado==='Entregue' && ult.deId===currentUser.id && !confirm('A sua última entrega ainda não foi aceite. Entregar novamente?')) return;
+  const tid = await Store.addDoc('turnosRecepcao', {em:new Date().toISOString(), turno:el('tr-turno').value, deId:currentUser.id, deNome:currentUser.nome, paraId:para.id, paraNome:para.nome, desde:r.desde,
+    recebido:r.recebido, saldoInicial:r.saldoInicial, esperado:r.esperado, numerarioContado:conta, diferenca:dif, justificacao:just, notas:el('tr-notas').value.trim(), pendentes:r.pend, fila:r.fila, internados:r.int, estado:'Entregue'});
+  audit('turno_recepcao_entregue','Entrega de turno',tid,`${fmtMZN(conta)} a ${para.nome}${Math.abs(dif)>0.004?' · dif. '+dif:''}`);
+  toast('✅ Turno entregue. Quem recebe vai ver o aviso e tem de aceitar.', 6000);
+}
+function turnoAceitar(id){
+  const t = turnosRecepcao.find(x=>x.id===id); if(!t || t.estado!=='Entregue' || t.paraId!==currentUser.id || !ehRecep()) return;
+  gmodal('Aceitar o turno de '+t.deNome, [
+    {id:'conta', label:`Numerário que contou agora (MZN) — entregue: ${fmtMZN(t.numerarioContado)}`, type:'number', step:'0.01', val:String(t.numerarioContado)},
+    {id:'nota', label:'Nota (obrigatória se o valor não coincidir)'}], 'Aceitar turno', async v=>{
+      const conta = Number(v.conta); if(isNaN(conta)||conta<0){ toast('⚠️ Indique o valor contado.'); return false; }
+      const dif = r2(conta - t.numerarioContado); if(Math.abs(dif)>0.004 && !v.nota.trim()){ toast('⚠️ O valor não coincide. Escreva a nota.'); return false; }
+      try{ await Store.claim('turnosRecepcao', id, 'estado', 'Entregue', 'Aceite'); }catch(e){ toast('⚠️ Este turno já foi aceite.'); return false; }
+      await Store.setDoc('turnosRecepcao', id, {recebidoContado:conta, recebidoEm:new Date().toISOString(), recebidoPor:currentUser.nome, recebidoPorId:currentUser.id, divergenciaRecepcao:Math.abs(dif)>0.004, notaRecepcao:v.nota.trim()});
+      audit('turno_recepcao_aceite','Entrega de turno',id,`${fmtMZN(conta)} de ${t.deNome}${Math.abs(dif)>0.004?' · divergência '+dif:''}`);
+      toast('✅ Turno aceite. O caixa está agora a seu cargo.', 6000);
+    }, `<div class="cell-sub">Pendentes no caixa: ${(t.pendentes||[]).length} · Fila: ${(t.fila||[]).length}${t.notas?'<br>Notas: '+esc(t.notas):''}</div>`);
+}
+function turnoImprimir(id){
+  const h = turnosRecepcao.find(x=>x.id===id); if(!h) return;
+  printDoc(`<div class="doc" style="font-size:12px;">${docHeader('Entrega de turno — Recepção e Caixa', h.turno)}
+    <div style="margin-bottom:8px;">Entregou: <b>${esc(h.deNome)}</b> · Recebeu: <b>${esc(h.paraNome)}</b> · ${new Date(h.em).toLocaleString('pt-PT')}<br>Período: ${new Date(h.desde).toLocaleString('pt-PT')} → ${new Date(h.em).toLocaleString('pt-PT')}</div>
+    <table class="doc-table"><tbody>${Object.entries(h.recebido||{}).map(([k,v])=>`<tr><td>Recebido em ${esc(k)}</td><td style="text-align:right;">${fmtMZN(v)}</td></tr>`).join('')}
+      <tr><td>Saldo inicial de numerário</td><td style="text-align:right;">${fmtMZN(h.saldoInicial)}</td></tr><tr><td>Numerário que devia existir</td><td style="text-align:right;">${fmtMZN(h.esperado)}</td></tr>
+      <tr><td><b>Numerário contado e entregue</b></td><td style="text-align:right;"><b>${fmtMZN(h.numerarioContado)}</b></td></tr>
+      ${Math.abs(h.diferenca||0)>0.004?`<tr><td>Diferença (${esc(h.justificacao||'')})</td><td style="text-align:right;">${fmtMZN(h.diferenca)}</td></tr>`:''}</tbody></table>
+    <h4>Pendentes no caixa (${(h.pendentes||[]).length})</h4><table class="doc-table"><tbody>${(h.pendentes||[]).map(p=>`<tr><td>${esc(p.paciente)} (NID ${esc(p.nid)})</td><td>${esc(p.servico)}</td><td style="text-align:right;">${fmtMZN(p.valor)}</td></tr>`).join('') || '<tr><td>—</td></tr>'}</tbody></table>
+    <h4>Fila de espera (${(h.fila||[]).length}) · Internados (${(h.internados||[]).length})</h4><div>${(h.fila||[]).map(q=>`#${esc(String(q.senha))} ${esc(q.paciente)} (${esc(q.esp)})`).join('; ')||'—'}<br>${(h.internados||[]).map(i=>`${esc(i.cama)} ${esc(i.paciente)}`).join('; ')||''}</div>
+    ${h.notas?`<h4>Notas</h4><div>${esc(h.notas)}</div>`:''}
+    ${h.estado==='Aceite'?`<div style="margin-top:8px;"><b>Aceite por ${esc(h.recebidoPor)}</b> em ${new Date(h.recebidoEm).toLocaleString('pt-PT')} — numerário contado ${fmtMZN(h.recebidoContado)}${h.divergenciaRecepcao?' (<b>divergência</b>: '+esc(h.notaRecepcao||'')+')':''}</div>`:'<div style="margin-top:8px;"><b>Ainda não aceite.</b></div>'}
+    <div style="display:flex;gap:40px;margin-top:40px;"><div style="flex:1;border-top:1px solid #000;padding-top:4px;">Entregou — ${esc(h.deNome)}</div><div style="flex:1;border-top:1px solid #000;padding-top:4px;">Recebeu — ${esc(h.paraNome)}</div></div>${docFooter(currentUser.nome)}</div>`);
+}
+
+/* ================= FICHA CLÍNICA COMPLETA DO PACIENTE (tudo o que diz respeito ao paciente) ================= */
+function fichaDados(nid){
+  const n = String(nid), dt = (a,b)=>String(b||'').localeCompare(String(a||''));
+  const ints = internamentos.filter(i=>String(i.pacienteNid)===n).sort((a,b)=>dt(a.admitidoEm,b.admitidoEm));
+  return {
+    p: patientByNid(nid),
+    consultas: appointments.filter(a=>String(a.pacienteNid)===n).sort((a,b)=>dt(a.data,b.data)),
+    notas: prontuarios.filter(x=>String(x.pacienteNid)===n).sort((a,b)=>dt(a.data,b.data)),
+    receitas: receitas.filter(x=>String(x.pacienteNid)===n).sort((a,b)=>dt(a.data,b.data)),
+    trat: tratamentosPrescritos.filter(x=>String(x.pacienteNid)===n).sort((a,b)=>dt(a.criadoEm||a.data,b.criadoEm||b.data)),
+    exames: pedidosExame.filter(x=>String(x.pacienteNid)===n).sort((a,b)=>dt(a.criadoEm||a.data,b.criadoEm||b.data)),
+    ints: ints.map(i=>({i,
+      sinais: sinaisVitais.filter(s=>s.internamentoId===i.id).sort((a,b)=>String(a.em).localeCompare(String(b.em))),
+      adm: administracoes.filter(a=>a.internamentoId===i.id).sort((a,b)=>String(a.previstoEm).localeCompare(String(b.previstoEm))),
+      cdx: cardex.filter(c=>c.internamentoId===i.id),
+      diario: diarioEnf.filter(d=>d.internamentoId===i.id).sort((a,b)=>String(a.em).localeCompare(String(b.em))),
+      tint: tratamentosInt.filter(t=>t.internamentoId===i.id)})),
+    refs: referenciacoes.filter(r=>String(r.pacienteNid)===n).sort((a,b)=>dt(a.criadoEm,b.criadoEm)),
+    disp: vendas.filter(v=>String(v.pacienteNid)===n).sort((a,b)=>dt(a.criadoEm||a.data,b.criadoEm||b.data))
+  };
+}
+function fichaHtml(nid, imp){
+  const f = fichaDados(nid), dh = iso => iso ? new Date(iso).toLocaleString('pt-PT') : '—', dd = d => d ? fmtDate(String(d).slice(0,10)) : '—';
+  const tb = (heads, rows) => rows.length ? `<div class="table-wrap"><table class="${imp?'doc-table':''}"><thead><tr>${heads.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>` : `<div class="cell-sub">Sem registos.</div>`;
+  const sec = (titulo, n, corpo) => imp ? `<div class="doc-section"><div class="lab">${titulo} (${n})</div>${corpo}</div>` : `<details class="card" style="margin-top:14px;" ${n?'':''}><summary style="cursor:pointer;font-weight:700;">${titulo} <span class="tag grey">${n}</span></summary><div style="margin-top:10px;">${corpo}</div></details>`;
+  const itensOrd = o => (o.itens||[]).map(i=>esc(i.nome)+(i.quantidade>1?' ×'+i.quantidade:'')).join(', ');
+  const sv = s => [s.temp!=null&&s.temp!==''?'T '+s.temp+'°C':'', s.pas?('TA '+s.pas+'/'+(s.pad||'?')):'', s.fc?'FC '+s.fc:'', s.fr?'FR '+s.fr:'', s.spo2?'SpO₂ '+s.spo2+'%':'', s.gli?'Gli '+s.gli:''].filter(Boolean).join(' · ');
+  let h = '';
+  h += sec('Consultas e marcações', f.consultas.length, tb(['Data','Hora','Especialidade / médico','Estado'], f.consultas.map(a=>[dd(a.data), esc(a.hora||''), esc(a.especialidadeNome||'')+' · '+esc(a.medicoNome||''), esc(a.estado||'')])));
+  h += sec('Notas clínicas e diagnósticos', f.notas.length, tb(['Data','Médico','Queixa','Exame','Diagnóstico','Notas','Destino'], f.notas.map(x=>[dd(x.data), esc(x.medicoNome||''), esc(x.queixa||'—'), esc(x.exame||'—'), '<b>'+esc(x.diagnostico||'—')+'</b>', esc(x.notas||'—'), esc(x.destino||'')])));
+  h += sec('Receitas', f.receitas.length, tb(['Data','Nº','Médico','Medicamentos','Instruções','Estado'], f.receitas.map(r=>[dd(r.data), esc(r.numero||''), esc(r.medicoNome||''), (r.itens||[]).map(i=>esc(i.medicamento)+' '+esc(i.dose||'')+' '+esc(i.freq||'')+' '+esc(i.duracao||'')).join('<br>'), esc(r.instrucoes||''), esc(r.estado||'')+(r.motivoRejeicao?'<br>'+esc(r.motivoRejeicao):'')])));
+  const ordRow = o => [dd(o.data||o.criadoEm), esc(o.medicoNome||(o.origemExterna?'Directo (sem médico)':'')), (o.categoria==='Procedimento'?'<b>Procedimento:</b> ':'')+itensOrd(o), esc(o.notas||''), esc(o.estado||'')+(o.concluidoEm?'<br>concluído '+dh(o.concluidoEm):'')];
+  h += sec('Tratamentos e procedimentos', f.trat.length, tb(['Data','Médico','Itens','Notas','Estado'], f.trat.map(ordRow)));
+  h += sec('Exames e resultados', f.exames.length, tb(['Data','Médico','Exames e resultados','Indicação','Estado'], f.exames.map(o=>[dd(o.data||o.criadoEm), esc(o.medicoNome||(o.origemExterna?'Directo (sem médico)':'')), (o.itens||[]).map(i=>'<b>'+esc(i.nome)+':</b> '+(i.resultado?esc(i.resultado):'<i>sem resultado</i>')).join('<br>'), esc(o.notas||''), esc(o.estado||'')])));
+  const intHtml = f.ints.map(x=>{ const i = x.i; return `<div style="margin:0 0 14px;padding:8px 10px;border:1px solid var(--border,#ccc);border-radius:8px;">
+    <div><b>${dh(i.admitidoEm)}</b> — ${esc(i.camaNome||'')} · ${esc(i.medicoNome||'')} · <span class="tag ${i.estado==='Alta'?'green':'amber'}">${esc(i.estado||'')}</span></div>
+    <div class="cell-sub">Motivo: ${esc(i.motivo||'—')} · Diagnóstico: ${esc(i.diagnostico||'—')}${i.planoInicial?' · Plano: '+esc(i.planoInicial):''}${i.estado==='Alta'?'<br>Alta: '+dh(i.altaEm)+' — '+esc(i.diagnosticoFinal||'')+' · '+esc(i.resumoAlta||''):''}</div>
+    <h4 style="margin:8px 0 4px;">Sinais vitais (${x.sinais.length})</h4>${tb(['Data','Valores','Obs.','Por'], x.sinais.map(s=>[dh(s.em), sv(s), esc(s.obs||''), esc(s.por||'')]))}
+    <h4 style="margin:8px 0 4px;">Medicação administrada (${x.adm.length})</h4>${tb(['Previsto','Medicamento','Dose / via','Estado','Obs.'], x.adm.map(a=>[dh(a.previstoEm), esc(a.medicamento||''), esc(a.dose||'')+' '+esc(a.via||''), esc(a.estado||'')+(a.atrasada?' (atraso)':''), esc(a.motivo||'')]))}
+    <h4 style="margin:8px 0 4px;">Diário de enfermagem (${x.diario.length})</h4>${tb(['Data','Tipo','Registo','Autor'], x.diario.map(d=>[dh(d.em), esc(d.tipo||''), esc(d.texto||''), esc(d.autor||'')]))}
+    <h4 style="margin:8px 0 4px;">Tratamentos do internamento (${x.tint.length})</h4>${tb(['Tratamento','Qtd','Estado','Notas'], x.tint.map(t=>[esc(t.nome||''), String(t.quantidade||1), esc(t.estado||''), esc(t.notas||'')]))}</div>`; }).join('');
+  h += sec('Internamentos', f.ints.length, intHtml || '<div class="cell-sub">Sem internamentos.</div>');
+  h += sec('Encaminhamentos', f.refs.length, tb(['Data','De','Para','Motivo','Estado'], f.refs.map(r=>[dd(r.criadoEm), esc(r.deEspecialidade||'')+' · '+esc(r.medicoNome||''), esc(r.paraEspecialidadeNome||''), esc(r.motivo||''), esc(r.estado||'')])));
+  h += sec('Farmácia — medicamentos dispensados', f.disp.length, tb(['Data','Nº','Produtos'], f.disp.map(v=>[dd(v.criadoEm||v.data), esc(v.numero||''), (v.itens||[]).map(i=>esc(i.nome)+' ×'+i.qtd).join(', ')])));
+  return h;
+}
+function cardFichaCompleta(nid){
+  return `<h3 style="margin:22px 0 4px;">Ficha clínica completa</h3><div class="csub">Tudo o que diz respeito ao paciente: consultas, notas, receitas, tratamentos, procedimentos, exames, internamento (sinais vitais, medicação, diário), encaminhamentos e farmácia. Clique em cada secção para abrir.</div>${fichaHtml(nid, false)}`;
+}
+
 /* ================= TABELA DE PREÇOS DA FARMÁCIA (lista «Novembro 2026»: Nome / Preço / Quantidade, por grupo) ================= */
 function medGrupo(m){ return m.grupo || (m.categoria==='Óptica' ? 'Óptica' : m.categoria==='Suprimento' ? 'Material médico-cirúrgico' : 'Sem grupo'); }
 function tabelaFarmaciaPlano(vazio){
@@ -2148,6 +2296,7 @@ const MENU = [
   ]},
   {sec:"Caixa e finanças", items:[
     {id:"caixa", label:"Caixa", icon:"💵", roles:["admin","recepcao","financeiro"]},
+    {id:"turnorec", label:"Entrega de turno (Recepção)", icon:"🔁", roles:["admin","recepcao","financeiro"]},
     {id:"documentos", label:"Facturas e VD", icon:"🧾", roles:["admin","recepcao","financeiro"]},
     {id:"financeiro", label:"Financeiro", icon:"💰", roles:["admin","financeiro"]},
     {id:"requisicoes", label:"Requisições", icon:"📄", roles:["admin","financeiro"]},
@@ -2378,6 +2527,7 @@ function bootApp(){
   Store.listen('administracoes', arr=>{ administracoes = arr; if(currentUser) render(); });
   Store.listen('diarioEnfermagem', arr=>{ diarioEnf = arr; if(currentUser) render(); });
   Store.listen('sinaisVitais', arr=>{ sinaisVitais = arr; if(currentUser) render(); });
+  Store.listen('turnosRecepcao', arr=>{ turnosRecepcao = arr; turnoBadge(); if(currentUser && currentView==='turnorec') render(); });
   Store.listen('passagensTurno', arr=>{ passagensTurno = arr; if(currentUser && currentView==='passagem') render(); });
   Store.listen('referenciacoes', arr=>{ referenciacoes = arr; if(currentUser) render(); });
   Store.listen('beneficiarios', arr=>{ beneficiarios = arr; if(currentUser && currentView!=='recepcao') render(); if(el('modal-benef') && el('modal-benef').classList.contains('active')) renderBeneficiarios(); });
@@ -2720,10 +2870,10 @@ function buildSidebar(){
   });
   if(currentUser.acumulaRecepcao && (currentUser.roleBase||currentUser.role)==='enfermeiro'){
     const rec = currentUser.role==='recepcao';
-    html = `<div class="sb-sec-label">Turno</div><button class="sb-item" onclick="trocarPosto()" style="background:${rec?'#fde8e6':'#e6f4ea'};font-weight:600;"><span class="ic">🔄</span>${rec?'Voltar à Enfermagem':'Assumir Recepção e Caixa'}</button>` + html;
+    html = `<div class="sb-sec-label">Turno</div><button class="sb-item" data-turno="1" onclick="trocarPosto()" style="background:${rec?'#fde8e6':'#e6f4ea'};font-weight:600;"><span class="ic">🔄</span>${rec?'Voltar à Enfermagem':'Assumir Recepção e Caixa'}</button>` + html;
   }
   nav.innerHTML = html;
-  reqBadge();
+  reqBadge(); turnoBadge();
 }
 function trocarPosto(){
   if(!currentUser || !currentUser.acumulaRecepcao || (currentUser.roleBase||currentUser.role)!=='enfermeiro') return;
@@ -2780,6 +2930,7 @@ function render(){
     case "internamentos": c.innerHTML = viewInternamentos(); break;
     case "internado": c.innerHTML = viewInternado(); break;
     case "passagem": c.innerHTML = viewPassagem(); break;
+    case "turnorec": c.innerHTML = viewTurnoRecepcao(); break;
     case "empresas": c.innerHTML = viewEntidades("empresa"); break;
     case "seguradoras": c.innerHTML = viewEntidades("seguradora"); break;
     case "tratamentos": c.innerHTML = viewCatalogo("tratamento"); break;
@@ -3962,6 +4113,7 @@ function viewProntuario(){
     </div>
   </div>
   ${cardOrdens(p.id)}
+  ${cardFichaCompleta(p.id)}
   `;
 }
 function openConsultaNota(apptId, pacienteNid){
@@ -4101,14 +4253,12 @@ function reimprimirReceita(id){
 function renderProntuarioDoc(nid){
   if(!canSeePatient(nid)) return '<div class="doc">Sem acesso a este paciente.</div>';
   const p = patientByNid(nid);
-  const historico = prontuarios.filter(x=>x.pacienteNid===nid).sort((a,b)=>(a.data||'').localeCompare(b.data||''));
-  return `<div class="doc">
+  return `<div class="doc" style="font-size:11.5px;">
     ${docHeader("Prontuário Médico", docNum("PR"))}
-    <div class="doc-section"><div class="lab">Paciente</div><div class="doc-grid"><div><b>${esc(p.nome)}</b></div><div>NID ${p.id}</div><div>${p.idade?p.idade+' anos':'—'} · ${p.sexo||'—'}</div><div>Sangue ${p.sangue||'—'}</div></div></div>
-    <div class="doc-section"><div class="lab">Histórico de consultas</div>
-      <table class="doc-table"><thead><tr><th>Data</th><th>Médico</th><th>Queixa</th><th>Diagnóstico</th><th>Notas</th></tr></thead>
-      <tbody>${historico.map(h=>`<tr><td>${fmtDate(h.data)}</td><td>${esc(h.medicoNome)}</td><td>${esc(h.queixa)||'—'}</td><td>${esc(h.diagnostico)||'—'}</td><td>${esc(h.notas)||'—'}</td></tr>`).join("") || `<tr><td colspan="5">Sem registos.</td></tr>`}</tbody></table>
-    </div>
+    <div class="doc-section"><div class="lab">Paciente</div><div class="doc-grid"><div><b>${esc(p.nome)}</b></div><div>NID ${p.id}</div><div>${p.idade?p.idade+' anos':'—'} · ${p.sexo||'—'}</div><div>Sangue ${p.sangue||'—'}</div></div>
+      <div style="margin-top:4px;">Alergias: <b>${p.alergias&&p.alergias!=='—'?esc(p.alergias):'nenhuma registada'}</b>${p.telefone?' · Tel. '+esc(p.telefone):''}</div>
+      ${p.historicoClinico?`<div style="margin-top:4px;white-space:pre-wrap;"><b>Historial anterior (ficha física):</b> ${esc(p.historicoClinico)}</div>`:''}</div>
+    ${fichaHtml(nid, true)}
     ${docFooter(currentUser.nome)}
   </div>`;
 }
@@ -6478,7 +6628,7 @@ async function resetSistema(){
   if(!confirm("ATENÇÃO: isto vai apagar PERMANENTEMENTE todos os dados do sistema — pacientes, consultas, facturas, receitas, stock, vendas, despesas, funcionários, especialidades e utilizadores. Esta ação não pode ser desfeita. Continuar?")) return;
   const confirmText = prompt('Para confirmar, escreva exactamente: APAGAR TUDO');
   if(confirmText !== 'APAGAR TUDO'){ toast("Reset cancelado — texto de confirmação não corresponde."); return; }
-  const collections = ['contadores','patients','appointments','queue','invoices','especialidades','prontuarios','receitas','medicamentos','vendas','despesas','funcionarios','alertas','emails','tratamentos','exames','tratamentosPrescritos','pedidosExame','empresas','seguradoras','camas','internamentos','cardex','administracoes','diarioEnfermagem','sinaisVitais','passagensTurno','referenciacoes','beneficiarios','recebimentos','contasInt','tratamentosInt','movimentosStock','planos','internadosAtivos','users','config','requisicoes','transferencias','anexos','presenca','salarios','assiduidade','adiantamentos','feriasPlano','disciplinares','fundoManeio','reconciliacoes','apuramentosIva'];   // 'auditoria' é preservada
+  const collections = ['contadores','patients','appointments','queue','invoices','especialidades','prontuarios','receitas','medicamentos','vendas','despesas','funcionarios','alertas','emails','tratamentos','exames','tratamentosPrescritos','pedidosExame','empresas','seguradoras','camas','internamentos','cardex','administracoes','diarioEnfermagem','sinaisVitais','passagensTurno','turnosRecepcao','referenciacoes','beneficiarios','recebimentos','contasInt','tratamentosInt','movimentosStock','planos','internadosAtivos','users','config','requisicoes','transferencias','anexos','presenca','salarios','assiduidade','adiantamentos','feriasPlano','disciplinares','fundoManeio','reconciliacoes','apuramentosIva'];   // 'auditoria' é preservada
   toast("⏳ A apagar todos os dados…", 60000);
   auditSuspended = true;
   try{
@@ -7169,7 +7319,7 @@ function aplicarFiltroAuditoria(){
 
 /* ================= CÓPIA DE SEGURANÇA ================= */
 const BACKUP_COLS = ['contadores','config','users','patients','appointments','queue','invoices','especialidades','prontuarios','receitas','medicamentos','vendas','despesas',
-  'funcionarios','alertas','emails','tratamentos','exames','tratamentosPrescritos','pedidosExame','empresas','seguradoras','camas','internamentos','cardex','administracoes','diarioEnfermagem','sinaisVitais','passagensTurno','referenciacoes','beneficiarios','recebimentos','contasInt','tratamentosInt','movimentosStock','planos','internadosAtivos','requisicoes','transferencias','anexos','salarios','assiduidade','adiantamentos','feriasPlano','disciplinares','fundoManeio','reconciliacoes','apuramentosIva','auditoria'];
+  'funcionarios','alertas','emails','tratamentos','exames','tratamentosPrescritos','pedidosExame','empresas','seguradoras','camas','internamentos','cardex','administracoes','diarioEnfermagem','sinaisVitais','passagensTurno','turnosRecepcao','referenciacoes','beneficiarios','recebimentos','contasInt','tratamentosInt','movimentosStock','planos','internadosAtivos','requisicoes','transferencias','anexos','salarios','assiduidade','adiantamentos','feriasPlano','disciplinares','fundoManeio','reconciliacoes','apuramentosIva','auditoria'];
 function baixarFicheiro(nome, texto, tipo){
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([texto], {type: tipo||'application/json'}));
