@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
 <title>Clínica Boa Visão — Sistema de Gestão</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0f3d3e">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -329,6 +331,7 @@ tbody tr:last-child td{border-bottom:none;}
 </div>
 
 <div id="toast"></div>
+<div id="net-status" style="display:none;position:fixed;left:12px;bottom:12px;z-index:9999;padding:7px 12px;border-radius:999px;font:600 12px Inter,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.25);cursor:default;"></div>
 
 <!-- ============ MODALS ============ -->
 
@@ -1246,7 +1249,8 @@ try{
   if(firebaseConfig.apiKey && firebaseConfig.apiKey.indexOf("COLE_AQUI") === -1){
     firebase.initializeApp(firebaseConfig);
     fsdb = firebase.firestore();
-    fsdb.enablePersistence({synchronizeTabs:true}).catch(()=>{});
+    try{ fsdb.settings({cacheSizeBytes: firebase.firestore.CACHE_SIZE_UNLIMITED}); }catch(e){}
+    fsdb.enablePersistence({synchronizeTabs:true}).catch(e=>console.warn('Modo offline indisponível neste navegador:', e && e.code));
     USE_FIREBASE = true;
     try{ fbAuth = firebase.auth(); fbAuth.setPersistence('none'); }catch(e){ fbAuth = null; console.warn("Firebase Authentication não carregou:", e); }
   }
@@ -1261,6 +1265,20 @@ function lsKey(col){ return LS_PREFIX + col; }
 function lsGetAll(col){ try{ return JSON.parse(localStorage.getItem(lsKey(col)) || "[]"); }catch(e){ return []; } }
 function lsSetAll(col, arr){ localStorage.setItem(lsKey(col), JSON.stringify(arr)); (localListeners[col]||[]).forEach(cb=>cb(arr)); }
 
+/* --- Modo offline: o Firestore guarda tudo no aparelho e sincroniza quando voltar a internet.
+   Escritas não esperam pela confirmação do servidor quando não há rede; operações atómicas (transacções) têm alternativa local. --- */
+const TAG_APARELHO = (()=>{ try{ let t = localStorage.getItem('bv_devtag'); if(!t){ t = String(10+Math.floor(Math.random()*90)); localStorage.setItem('bv_devtag', t); } return Number(t); }catch(e){ return 99; } })();
+function semRede(){ return typeof navigator!=='undefined' && navigator.onLine===false; }
+function erroRede(e){ return !!e && (['unavailable','deadline-exceeded'].includes(e.code) || /offline|network|Failed to get document from cache/i.test(e.message||'')); }
+function fsAck(p){
+  p.catch(e=>{ console.warn('escrita pendente:', e); if(e && e.code==='permission-denied') toast('⚠️ O servidor recusou uma alteração (permissões).'); });
+  return semRede() ? Promise.resolve() : Promise.race([p, new Promise(r=>setTimeout(r, 8000))]);
+}
+async function lerCache(ref){ try{ const sn = await ref.get({source:'cache'}); return sn.exists ? sn : null; }catch(e){ return null; } }
+function seqOffline(chave, n){
+  const k = 'bv_offseq_'+chave; let c = 0; try{ c = Number(localStorage.getItem(k))||0; localStorage.setItem(k, String(c+n)); }catch(e){}
+  return TAG_APARELHO*10000 + c + 1;
+}
 const Store = {
   listen(col, cb, opts){
     if(USE_FIREBASE){
@@ -1281,7 +1299,7 @@ const Store = {
   },
   async setDoc(col, id, data){
     const antes = auditBefore(col, id);
-    if(USE_FIREBASE){ await fsdb.collection(col).doc(String(id)).set(data, {merge:true}); }
+    if(USE_FIREBASE){ await fsAck(fsdb.collection(col).doc(String(id)).set(data, {merge:true})); }
     else {
       let arr = lsGetAll(col);
       const idx = arr.findIndex(x=>x.id===String(id));
@@ -1293,7 +1311,7 @@ const Store = {
   },
   async addDoc(col, data){
     let id;
-    if(USE_FIREBASE){ const ref = await fsdb.collection(col).add(data); id = ref.id; }
+    if(USE_FIREBASE){ const ref = fsdb.collection(col).doc(); id = ref.id; await fsAck(ref.set(data)); }
     else {
       id = "L" + Date.now() + Math.floor(Math.random()*1000);
       let arr = lsGetAll(col); arr.push({id, ...data}); lsSetAll(col, arr);
@@ -1303,7 +1321,7 @@ const Store = {
   },
   async deleteDoc(col, id){
     const antes = auditBefore(col, id);
-    if(USE_FIREBASE){ await fsdb.collection(col).doc(String(id)).delete(); }
+    if(USE_FIREBASE){ await fsAck(fsdb.collection(col).doc(String(id)).delete()); }
     else { lsSetAll(col, lsGetAll(col).filter(x=>x.id!==String(id))); }
     auditWrite('apagar', col, id, null, antes);
   },
@@ -1321,7 +1339,7 @@ const Store = {
       for(let i=0; i<docs.length; i+=400){
         const b = fsdb.batch();
         docs.slice(i, i+400).forEach(d=>{ const {id, ...rest} = d; b.set(fsdb.collection(col).doc(String(id)), rest, {merge:true}); });
-        await b.commit();
+        await fsAck(b.commit());
         if(onProgress) onProgress(Math.min(i+400, docs.length), docs.length);
       }
     } else {
@@ -1340,7 +1358,7 @@ const Store = {
       for(let i=0; i<ids.length; i+=400){
         const b = fsdb.batch();
         ids.slice(i, i+400).forEach(id=>b.delete(fsdb.collection(col).doc(String(id))));
-        await b.commit();
+        await fsAck(b.commit());
       }
     } else {
       const del = new Set(ids.map(String));
@@ -1351,7 +1369,9 @@ const Store = {
   async incrementCapped(col, id, field, delta, capField){
     const calc = d=>{ const novo = Math.round(((Number(d[field])||0)+delta)*100)/100; if(novo > (Number(d[capField])||0)+0.001) throw new Error('excede'); return novo; };
     if(USE_FIREBASE){
-      return await fsdb.runTransaction(async tx=>{ const ref = fsdb.collection(col).doc(String(id)), sn = await tx.get(ref); if(!sn.exists) throw new Error('nao-existe'); const novo = calc(sn.data()); tx.update(ref, {[field]:novo}); return novo; });
+      if(!semRede()){ try{ return await fsdb.runTransaction(async tx=>{ const ref = fsdb.collection(col).doc(String(id)), sn = await tx.get(ref); if(!sn.exists) throw new Error('nao-existe'); const novo = calc(sn.data()); tx.update(ref, {[field]:novo}); return novo; }); }catch(e){ if(!erroRede(e)) throw e; } }
+      const ref = fsdb.collection(col).doc(String(id)), sn = await lerCache(ref); if(!sn) throw new Error('nao-existe');
+      const novo = calc(sn.data()); await fsAck(ref.update({[field]:novo})); return novo;
     }
     const arr = lsGetAll(col), d = arr.find(x=>x.id===String(id));
     if(!d) throw new Error('nao-existe');
@@ -1361,7 +1381,8 @@ const Store = {
   async nextSeq(chave, n){
     n = n||1;
     if(USE_FIREBASE){
-      return await fsdb.runTransaction(async tx=>{ const ref = fsdb.collection('contadores').doc(String(chave)), sn = await tx.get(ref); const atual = sn.exists ? (Number(sn.data().ultimo)||0) : 0; tx.set(ref, {ultimo: atual+n}); return atual+1; });
+      if(!semRede()){ try{ return await fsdb.runTransaction(async tx=>{ const ref = fsdb.collection('contadores').doc(String(chave)), sn = await tx.get(ref); const atual = sn.exists ? (Number(sn.data().ultimo)||0) : 0; tx.set(ref, {ultimo: atual+n}); return atual+1; }); }catch(e){ if(!erroRede(e)) throw e; } }
+      return seqOffline(chave, n);   // sem rede: número provisório único deste aparelho (ex.: 470001), nunca repete o de outro posto
     }
     const arr = lsGetAll('contadores'); let d = arr.find(x=>x.id===String(chave)); const atual = d ? (Number(d.ultimo)||0) : 0;
     if(d) d.ultimo = atual+n; else arr.push({id:String(chave), ultimo:atual+n});
@@ -1370,7 +1391,9 @@ const Store = {
   /* cria um documento só se ainda não existir (registos imutáveis: uma dose só pode ser registada uma vez) */
   async createOnce(col, id, data){
     if(USE_FIREBASE){
-      await fsdb.runTransaction(async tx=>{ const ref = fsdb.collection(col).doc(String(id)), sn = await tx.get(ref); if(sn.exists) throw new Error('existe'); tx.set(ref, data); });
+      let feito = false;
+      if(!semRede()){ try{ await fsdb.runTransaction(async tx=>{ const ref = fsdb.collection(col).doc(String(id)), sn = await tx.get(ref); if(sn.exists) throw new Error('existe'); tx.set(ref, data); }); feito = true; }catch(e){ if(!erroRede(e)) throw e; } }
+      if(!feito){ const ref = fsdb.collection(col).doc(String(id)); if(await lerCache(ref)) throw new Error('existe'); await fsAck(ref.set(data)); }
     } else {
       const arr = lsGetAll(col);
       if(arr.some(x=>x.id===String(id))) throw new Error('existe');
@@ -1380,11 +1403,13 @@ const Store = {
   /* muda um campo só se ainda tiver o valor esperado (evita pagamentos/dispensas duplicados em dois postos) */
   async claim(col, id, field, from, to){
     if(USE_FIREBASE){
-      await fsdb.runTransaction(async tx=>{
+      let feito = false;
+      if(!semRede()){ try{ await fsdb.runTransaction(async tx=>{
         const ref = fsdb.collection(col).doc(String(id)), sn = await tx.get(ref);
         if(!sn.exists || sn.data()[field]!==from) throw new Error('claim');
         tx.update(ref, {[field]: to});
-      });
+      }); feito = true; }catch(e){ if(!erroRede(e)) throw e; } }
+      if(!feito){ const ref = fsdb.collection(col).doc(String(id)), sn = await lerCache(ref); if(!sn || sn.data()[field]!==from) throw new Error('claim'); await fsAck(ref.update({[field]: to})); }
     } else {
       const arr = lsGetAll(col), d = arr.find(x=>x.id===String(id));
       if(!d || d[field]!==from) throw new Error('claim');
@@ -1400,12 +1425,20 @@ const Store = {
     const falta = (nome, disp)=>{ const e = new Error('stock'); e.produto = nome; e.disponivel = disp; return e; };
     const mov = (m, saldo)=>({produtoId:m, produto:nomes[m]||'', tipo:ctx.tipo, delta:-need[m], saldoApos:saldo, motivo:ctx.motivo||'', ref:ctx.ref||'', por, porId, em:agora});
     if(USE_FIREBASE){
-      await fsdb.runTransaction(async tx=>{
+      let feito = false;
+      if(!semRede()){ try{ await fsdb.runTransaction(async tx=>{
         const refs = ids.map(id=>fsdb.collection('medicamentos').doc(id));
         const snaps = await Promise.all(refs.map(r=>tx.get(r)));
         snaps.forEach((sn,i)=>{ const cur = sn.exists ? (Number(sn.data().stock)||0) : 0; if(!sn.exists || cur<need[ids[i]]) throw falta(sn.exists ? sn.data().nome : ids[i], cur); });
         snaps.forEach((sn,i)=>{ const saldo = (Number(sn.data().stock)||0) - need[ids[i]]; tx.update(refs[i], {stock: saldo}); tx.set(fsdb.collection('movimentosStock').doc(), mov(ids[i], saldo)); });
-      });
+      }); feito = true; }catch(e){ if(!erroRede(e)) throw e; } }
+      if(!feito){   // sem rede: valida com o stock guardado no aparelho e desconta por incremento (soma correctamente quando sincronizar)
+        const refs = ids.map(id=>fsdb.collection('medicamentos').doc(id)), snaps = await Promise.all(refs.map(lerCache));
+        snaps.forEach((sn,i)=>{ const cur = sn ? (Number(sn.data().stock)||0) : 0; if(!sn || cur<need[ids[i]]) throw falta(sn ? sn.data().nome : ids[i], cur); });
+        const b = fsdb.batch();
+        snaps.forEach((sn,i)=>{ const saldo = (Number(sn.data().stock)||0) - need[ids[i]]; b.update(refs[i], {stock: firebase.firestore.FieldValue.increment(-need[ids[i]])}); b.set(fsdb.collection('movimentosStock').doc(), mov(ids[i], saldo)); });
+        await fsAck(b.commit());
+      }
     } else {
       const arr = lsGetAll('medicamentos'), movs = lsGetAll('movimentosStock');
       ids.forEach(id=>{ const m = arr.find(x=>x.id===id), cur = m ? (Number(m.stock)||0) : 0; if(!m || cur<need[id]) throw falta(m ? m.nome : id, cur); });
@@ -1421,11 +1454,14 @@ const Store = {
     const upd = saldo=>{ const u = {stock:saldo}; if(delta>0 && tipo==='Entrada'){ if(lote) u.lote = lote; if(validade) u.validade = validade; if(precoCompra!==undefined && precoCompra!=='' && !isNaN(Number(precoCompra))) u.precoCompra = Number(precoCompra); } return u; };
     const mov = (nome, saldo)=>({produtoId:id, produto:nome, tipo, delta, saldoApos:saldo, motivo:motivo||'', lote:lote||'', validade:validade||'', precoCompra:precoCompra!==undefined&&precoCompra!==''?Number(precoCompra):null, ref:ref||'', por, porId, em:agora});
     if(USE_FIREBASE){
-      return await fsdb.runTransaction(async tx=>{
+      if(!semRede()){ try{ return await fsdb.runTransaction(async tx=>{
         const r = fsdb.collection('medicamentos').doc(String(id)), sn = await tx.get(r);
         if(!sn.exists) throw new Error('nao-existe');
         const saldo = aplicar(sn.data()); tx.update(r, upd(saldo)); tx.set(fsdb.collection('movimentosStock').doc(), mov(sn.data().nome, saldo)); return saldo;
-      });
+      }); }catch(e){ if(!erroRede(e)) throw e; } }
+      const r = fsdb.collection('medicamentos').doc(String(id)), sn = await lerCache(r); if(!sn) throw new Error('nao-existe');
+      const saldo = aplicar(sn.data()), u = upd(saldo); u.stock = firebase.firestore.FieldValue.increment(delta);
+      const b = fsdb.batch(); b.update(r, u); b.set(fsdb.collection('movimentosStock').doc(), mov(sn.data().nome, saldo)); await fsAck(b.commit()); return saldo;
     }
     const arr = lsGetAll('medicamentos'), d = arr.find(x=>x.id===String(id));
     if(!d) throw new Error('nao-existe');
@@ -2274,6 +2310,29 @@ const fmtSeq = (prefix, ano, n) => `${prefix}-${ano}/${String(n).padStart(5,'0')
 async function docSeq(prefix){ const ano = new Date().getFullYear(); return fmtSeq(prefix, ano, await Store.nextSeq(prefix+'-'+ano, 1)); }
 async function docSeqN(prefix, n){ const ano = new Date().getFullYear(), ini = await Store.nextSeq(prefix+'-'+ano, n); return Array.from({length:n}, (_,i)=>fmtSeq(prefix, ano, ini+i)); }
 
+/* ================= LIGAÇÃO, OFFLINE E SINCRONIZAÇÃO ================= */
+let netSync = false;
+function netActualizar(){
+  const e = document.getElementById('net-status'); if(!e) return;
+  const off = semRede();
+  if(off){ e.style.display='block'; e.style.background='#b3261e'; e.style.color='#fff'; e.textContent='📴 Sem internet — a trabalhar offline; as alterações ficam guardadas e sincronizam depois'; return; }
+  if(netSync){ e.style.display='block'; e.style.background='#b26a00'; e.style.color='#fff'; e.textContent='🔄 A sincronizar alterações…'; return; }
+  e.style.display = 'none';
+}
+async function netSincronizar(){
+  if(!USE_FIREBASE || semRede()) return;
+  netSync = true; netActualizar();
+  try{ await Promise.race([fsdb.waitForPendingWrites(), new Promise((_,ko)=>setTimeout(()=>ko(new Error('demora')), 60000))]); netSync = false; netActualizar(); toast('✅ Sincronizado com o servidor.'); }
+  catch(e){ netSync = false; netActualizar(); }
+}
+window.addEventListener('offline', ()=>{ netActualizar(); });
+window.addEventListener('online', ()=>{ netActualizar(); netSincronizar(); });
+window.addEventListener('load', ()=>{
+  netActualizar();
+  if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){ navigator.serviceWorker.register('sw.js').catch(e=>console.warn('Service worker:', e)); }
+  setTimeout(netSincronizar, 3000);
+});
+
 /* ================= BOOT SEQUENCE ================= */
 function bootApp(){
   Store.listen('config', arr=>{ configDoc = arr.find(x=>x.id==='main') || null; if(document.getElementById('app').classList.contains('active')) applyBranding(); renderAuthOrApp(); });
@@ -2581,10 +2640,14 @@ async function doLoginMedico(email, pass){
       if(!u.authOk && !u.authUid){ toast("⚠️ Esta conta de médico ainda não tem acesso por email. Peça ao Administrador para criar o acesso (Utilizadores → Editar)."); return; }
       try{
         const cred = await fbAuth.signInWithEmailAndPassword(email, pass);
-        ok = true;
+        ok = true; try{ localStorage.setItem('bv_offcred_'+email, hashPassword(pass, 'off:'+email)); }catch(e2){}
         if(!u.authUid){ u.authUid = cred.user.uid; Store.setDoc('users', u.id, {authUid:cred.user.uid, authOk:true}); }
       }catch(e){
-        if(e.code==='auth/network-request-failed'){ toast("⚠️ Sem ligação à internet. Tente novamente."); return; }
+        if(e.code==='auth/network-request-failed'){
+          let guardada = null; try{ guardada = localStorage.getItem('bv_offcred_'+email); }catch(e2){}
+          if(guardada && guardada===hashPassword(pass, 'off:'+email)){ ok = true; toast('📴 Sem internet — sessão aberta com a credencial guardada neste aparelho.', 6000); }
+          else { toast("⚠️ Sem ligação à internet. Neste aparelho só pode entrar offline quem já entrou aqui com internet."); return; }
+        }
         if(e.code==='auth/too-many-requests'){ toast("⚠️ Demasiadas tentativas. Aguarde alguns minutos ou use «Sou médico e esqueci a password»."); return; }
         if(e.code==='auth/operation-not-allowed'){ toast("⚠️ O início de sessão por email não está activo no Firebase (Authentication → Sign-in method → Email/Password)."); return; }
       }
