@@ -2335,16 +2335,25 @@ function viewAutorizacoes(){
   const todos = invoices.filter(i=>i.aut && i.autEstado).sort((a,b)=>(b.aut.pedidoEm||'').localeCompare(a.aut.pedidoEm||'')).slice(0,60), pend = autPendentes();
   const linha = (i, acoes)=>{ const a = i.aut; return `<tr><td class="cell-name">${esc(i.pacienteNome||'—')}<div class="cell-sub">NID ${esc(i.pacienteNid||'')} · ${esc(i.servico||'')}</div></td><td><span class="tag ${a.tipo==='subsidiado'?'green':'amber'}">${ESP_TIPOS[a.tipo]}</span></td>
     <td><b>${fmtMZN(a.valorAutorizado)}</b>${a.tipo!=='subsidiado'?`<div class="cell-sub">entrada ${fmtMZN(a.entrada)} · ${a.parcelas.length} parcela(s)</div>`:''}</td>
-    <td class="cell-sub">${a.fundamento?'<b>'+esc(a.fundamento)+'</b><br>':''}${esc(a.motivo||'')}${a.parceiro?'<br>Parceiro: '+esc(a.parceiro):''}${a.anexoId?`<br><a href="#" onclick="anexoVer('${a.anexoId}');return false;">📎 Ver comprovativo</a>`:''}${a.dirNota?'<br>Nota do Director: '+esc(a.dirNota):''}<br>Pedido por ${esc(a.pedidoPor||'')} · ${a.pedidoEm?new Date(a.pedidoEm).toLocaleString('pt-PT'):''}</td>
+    <td class="cell-sub">${a.fundamento?'<b>'+esc(a.fundamento)+'</b><br>':''}${esc(a.motivo||'')}${a.parceiro?'<br>Parceiro: '+esc(a.parceiro):''}${a.anexoId?`<br><a href="#" onclick="anexoVer('${a.anexoId}');return false;">📎 Ver comprovativo</a>`:''}${a.isentosNomes?'<br>Isenta: '+esc(a.isentosNomes.join(', '))+' ('+fmtMZN(a.valorIsento)+')':''}${a.adminNota?'<br>Nota do Administrador: '+esc(a.adminNota):''}${a.dirNota?'<br>Nota do Director: '+esc(a.dirNota):''}${a.liberado?'<br>✔ Atendimento libertado':''}<br>Pedido por ${esc(a.pedidoPor||'')} · ${a.pedidoEm?new Date(a.pedidoEm).toLocaleString('pt-PT'):''}</td>
     <td class="cell-sub">${a.adminPor?'Autorizou: '+esc(a.adminPor)+'<br>':''}${a.dirPor?'Visto: '+esc(a.dirPor):''}<div>${esc(autEstadoTxt(i.autEstado)||i.autEstado)}${i.autRecusa?': '+esc(i.autRecusa):''}</div></td><td>${acoes}</td></tr>`; };
   const ids = new Set(pend.map(i=>i.id));
   return `<div class="page-head"><div><h1>Autorizações de pagamento especial</h1><div class="desc">Subsidiados, créditos e pagamentos parcelados. O Administrador autoriza e o Director dá o visto — só depois a Recepção emite o documento.</div></div></div>
+  ${currentUser.role==='admin' ? `<div class="muted-note" style="margin-bottom:12px;">${autVedado()?`🔒 O Administrador está <b>vedado</b> de libertar o atendimento sem o visto do Director${configDoc.autAdminVedadoPor?' (por '+esc(configDoc.autAdminVedadoPor)+')':''}. ${ehDirector()?'<button class="btn sm" onclick="autDesvedar()">Levantar restrição</button>':''}`:`O Administrador pode libertar o atendimento ao autorizar (com isenção total) e o Director dá o visto a seguir. ${ehDirector()?'<button class="btn sm" onclick="autVedar()">Vedar o Administrador sem o meu visto</button>':''}`}</div>`:''}
   <div class="card" style="margin-bottom:14px;"><h3>Por decidir (${pend.length})</h3><div class="table-wrap"><table><thead><tr><th>Paciente</th><th>Tipo</th><th>Valor</th><th>Motivo</th><th>Estado</th><th></th></tr></thead><tbody>
   ${pend.map(i=>linha(i, i.autEstado==='Pedida' ? (ehDirector()?`<button class="btn sm solid" onclick="autDecidir('${i.id}','ok')">Autorizar e visar</button> `:`<button class="btn sm solid" onclick="autDecidir('${i.id}','ok')">Autorizar</button> `)+`<button class="btn sm" onclick="autDecidir('${i.id}','no')">Recusar</button>`
      : `<button class="btn sm solid" onclick="autDecidir('${i.id}','ok')">Dar visto</button> <button class="btn sm" onclick="autDecidir('${i.id}','no')">Recusar</button>`)).join('') || `<tr><td colspan="6"><div class="empty">Nada por decidir.</div></td></tr>`}</tbody></table></div></div>
   <div class="card"><h3>Histórico</h3><div class="table-wrap"><table><thead><tr><th>Paciente</th><th>Tipo</th><th>Valor</th><th>Motivo</th><th>Estado</th><th></th></tr></thead><tbody>
   ${todos.filter(i=>!ids.has(i.id)).map(i=>linha(i,'')).join('') || `<tr><td colspan="6"><div class="empty">Sem registos.</div></td></tr>`}</tbody></table></div></div>`;
 }
+const autVedado = ()=> !!(configDoc && configDoc.autAdminVedado);
+/* liberta a consulta / o exame / o tratamento (sem pagamento no Caixa) quando a isenção é total */
+async function espLibertar(inv){
+  if(inv.apptId){ const ap = appointments.find(x=>x.id===inv.apptId); if(ap && ap.estado==='Aguarda pagamento') await Store.setDoc('appointments', ap.id, {estado:'Confirmada', estadoPagamento:'Subsidiado (autorizado)', liberadoSubsidio:true}); }
+  if(inv.ordemId){ const col = inv.ordemTipo==='tratamento' ? 'tratamentosPrescritos' : 'pedidosExame', o = (col==='pedidosExame' ? pedidosExame : tratamentosPrescritos).find(x=>x.id===inv.ordemId);
+    if(o && o.estado==='Aguarda pagamento') await Store.setDoc(col, inv.ordemId, {estado:'Pago', pagoEm:new Date().toISOString(), factura:'Subsídio autorizado', liberadoSubsidio:true}); }
+}
+function autItensIsencao(inv, a){ const itens = inv.itens||[]; return itens.length ? itens.map((it,k)=>({k, nome:it.nome+((it.quantidade||1)>1?' ×'+it.quantidade:''), v:Number(it.subtotal)||0})) : [{k:0, nome:inv.servico||'Serviço', v:Number(inv.valor)||0}]; }
 async function autDecidir(id, d){
   const inv = invoices.find(x=>x.id===id); if(!inv || !inv.aut || currentUser.role!=='admin') return;
   const dir = ehDirector(), est = inv.autEstado;
@@ -2358,20 +2367,48 @@ async function autDecidir(id, d){
       audit('autorizacao_recusada','Pagamento especial', inv.pacienteNome||'', v.m.trim()); toast('Pedido recusado.');
     }); return;
   }
-  const dirDecide = (est==='Pedida' && dir) || est==='AutorizadaAdmin';
-  const executar = async nota=>{
-  const agora = new Date().toISOString(), a = {...inv.aut};
-  let novo;
-  if(nota) a.dirNota = nota;
-  if(est==='Pedida'){ a.adminPor = currentUser.nome; a.adminEm = agora; if(dir){ a.dirPor = currentUser.nome; a.dirEm = agora; novo = 'Autorizada'; } else novo = 'AutorizadaAdmin'; }
-  else { a.dirPor = currentUser.nome; a.dirEm = agora; novo = 'Autorizada'; }
-  try{ await Store.claim('invoices', id, 'autEstado', est, novo); }catch(e){ toast('⚠️ Este pedido já foi decidido.'); return; }
-  await Store.setDoc('invoices', id, {aut:a});
-  audit(novo==='Autorizada'?'autorizacao_visada':'autorizacao_admin','Pagamento especial', inv.pacienteNome||'', `${ESP_TIPOS[a.tipo]} · ${fmtMZN(a.valorAutorizado)}`);
-  toast(novo==='Autorizada' ? '✅ Autorizado e visado. A Recepção já pode emitir o documento.' : '✅ Autorizado. Segue para o visto do Director.');
+  const tipo = inv.aut.tipo, comoDir = dir, vp = Number(inv.aut.valorAutorizado)||0, base = Number(inv.valor)||0;
+  const itens = tipo==='subsidiado' ? autItensIsencao(inv, inv.aut) : [], somaItens = r2(itens.reduce((t,x)=>t+x.v,0));
+  const pre = new Set(inv.aut.isentos || itens.map(x=>x.k));
+  const executar = async (v)=>{
+    const agora = new Date().toISOString(), a = {...inv.aut};
+    let isentos = itens.filter(x=>v['it'+x.k]);
+    if(tipo==='subsidiado'){
+      if(!isentos.length){ toast('⚠️ Escolha pelo menos um item a isentar.'); return false; }
+      const soma = r2(isentos.reduce((t,x)=>t+x.v,0)), isento = somaItens>0 ? r2(Math.min(vp, soma*vp/somaItens)) : vp;
+      a.isentos = isentos.map(x=>x.k); a.isentosNomes = isentos.map(x=>x.nome); a.valorIsento = isento; a.entrada = r2(vp-isento);
+    }
+    const nota = (v.nota||'').trim(); if(!nota){ toast('⚠️ A nota explicativa é obrigatória.'); return false; }
+    let novo;
+    if(est==='Pedida'){ a.adminPor = currentUser.nome; a.adminEm = agora; a.adminNota = nota; if(comoDir){ a.dirPor = currentUser.nome; a.dirEm = agora; a.dirNota = nota; novo = 'Autorizada'; } else novo = 'AutorizadaAdmin'; }
+    else { a.dirPor = currentUser.nome; a.dirEm = agora; a.dirNota = nota; novo = 'Autorizada'; }
+    const total = tipo!=='subsidiado' || a.entrada===0;
+    const libertar = total && (novo==='Autorizada' || (novo==='AutorizadaAdmin' && !autVedado()));
+    if(libertar) a.liberado = true;
+    try{ await Store.claim('invoices', id, 'autEstado', est, novo); }catch(e){ toast('⚠️ Este pedido já foi decidido.'); return; }
+    await Store.setDoc('invoices', id, {aut:a});
+    if(libertar) await espLibertar(inv);
+    if(comoDir && v.vedar && !autVedado()){ await Store.setDoc('config','main',{autAdminVedado:true, autAdminVedadoPor:currentUser.nome, autAdminVedadoEm:agora}); audit('autorizacao_vedada','Administrador','', 'O Administrador deixa de poder autorizar sem o visto do Director'); }
+    audit(novo==='Autorizada'?'autorizacao_visada':'autorizacao_admin','Pagamento especial', inv.pacienteNome||'', `${ESP_TIPOS[a.tipo]} · ${fmtMZN(a.valorAutorizado)}${tipo==='subsidiado'?' · isento '+fmtMZN(a.valorIsento):''}${libertar?' · serviço libertado':''}`);
+    toast(novo==='Autorizada' ? '✅ Autorizado e visado.'+(libertar?' O atendimento já pode começar.':' A Recepção emite o documento e cobra a parte não isenta.') : '✅ Autorizado.'+(libertar?' O atendimento já pode começar; segue para o visto do Director.':' Segue para o visto do Director.'));
   };
-  if(dirDecide) gmodal('Visto do Director — '+(inv.pacienteNome||''), [{id:'n', label:'Nota do Director *', type:'textarea'}], 'Dar visto', async v=>{ if(!v.n.trim()){ toast('⚠️ A nota do Director é obrigatória.'); return false; } await executar(v.n.trim()); }, 'A nota fica registada e consta do documento de autorização.');
-  else await executar('');
+  const secs = [];
+  if(tipo==='subsidiado') secs.push({h:'Itens que o paciente fica isento de pagar', f:itens.map(x=>({id:'it'+x.k, l:`${x.nome} — ${fmtMZN(x.v)}`, t:'check'}))});
+  const rotulo = est==='AutorizadaAdmin' ? 'Nota do Director' : (comoDir ? 'Nota do Director' : 'Nota explicativa para o Director');
+  const f2 = [{id:'nota', l:rotulo+' *', t:'area'}];
+  if(comoDir && !autVedado()) f2.push({id:'vedar', l:'Vedar o Administrador de autorizar futuros pedidos sem o meu visto prévio', t:'check'});
+  secs.push({h:rotulo, f:f2});
+  const vals = {}; itens.forEach(x=>{ vals['it'+x.k] = pre.has(x.k); });
+  fichaModal((est==='AutorizadaAdmin'?'Visto do Director — ':'Autorizar — ')+(inv.pacienteNome||''), secs, vals, est==='AutorizadaAdmin'?'Dar visto':(comoDir?'Autorizar e visar':'Autorizar'), executar,
+    (tipo==='subsidiado' ? 'Tudo o que não for isento é cobrado ao paciente no Caixa. ' : '')+(est==='Pedida'&&!comoDir ? (autVedado()?'O Director vedou autorizações sem o seu visto: o atendimento só começa depois do visto.':'Com isenção total, o atendimento pode começar já; o Director dá o visto depois.') : ''));
+}
+async function autDesvedar(){
+  if(!ehDirector() || !autVedado()) return;
+  await Store.setDoc('config','main',{autAdminVedado:false}); audit('autorizacao_desvedada','Administrador','', 'O Administrador volta a poder libertar o atendimento ao autorizar'); toast('✅ Restrição levantada.');
+}
+async function autVedar(){
+  if(!ehDirector() || autVedado()) return;
+  await Store.setDoc('config','main',{autAdminVedado:true, autAdminVedadoPor:currentUser.nome, autAdminVedadoEm:new Date().toISOString()}); audit('autorizacao_vedada','Administrador','', 'O Administrador deixa de poder autorizar sem o visto do Director'); toast('✅ Restrição aplicada.');
 }
 /* ---- documento: linhas do pagamento especial ---- */
 function htmlEspecial(i){
@@ -2389,7 +2426,8 @@ function htmlSubsidio(inv, via){
     <div class="doc-section"><div class="lab">Serviço subsidiado</div><div style="font-size:12.5px;">${esc(inv.servico||'')}</div>
       <div class="doc-totais" style="margin-top:8px;"><div><span>Valor do serviço</span><b>${fmtMZN(total)}</b></div><div><span>Pago pelo paciente${pago>0?' (facturado na VD '+esc(inv.numero||'')+')':''}</span><b>${fmtMZN(pago)}</b></div><div style="font-weight:700;"><span>Subsidiado pela Clínica Boa Visão</span><b>${fmtMZN(e.valorDiferido)}</b></div></div></div>
     <div class="doc-section"><div class="lab">Fundamento</div><div style="font-size:12.5px;"><b>${esc(e.fundamento||'')}</b>${e.parceiro?' · enviado por '+esc(e.parceiro):''}<br>${esc(e.motivo||'')}<br>Comprovativo anexado: ${esc(e.anexoNome||'—')}</div></div>
-    <div class="doc-section"><div class="lab">Autorização</div><div style="font-size:12.5px;">Autorizado por <b>${esc(e.adminPor||'')}</b>${e.adminEm?' em '+new Date(e.adminEm).toLocaleString('pt-PT'):''}<br>Visto do Director: <b>${esc(e.dirPor||'')}</b>${e.dirEm?' em '+new Date(e.dirEm).toLocaleString('pt-PT'):''}${e.dirNota?'<br><i>Nota do Director:</i> '+esc(e.dirNota):''}</div></div>
+    ${(e.isentosNomes||[]).length?`<div class="doc-section"><div class="lab">Isento de pagamento</div><div style="font-size:12.5px;">${e.isentosNomes.map(esc).join('; ')}</div></div>`:''}
+    <div class="doc-section"><div class="lab">Autorização</div><div style="font-size:12.5px;">Autorizado por <b>${esc(e.adminPor||'')}</b>${e.adminEm?' em '+new Date(e.adminEm).toLocaleString('pt-PT'):''}<br>Visto do Director: <b>${esc(e.dirPor||'')}</b>${e.dirEm?' em '+new Date(e.dirEm).toLocaleString('pt-PT'):''}${e.adminNota?'<br><i>Nota do Administrador:</i> '+esc(e.adminNota):''}${e.dirNota?'<br><i>Nota do Director:</i> '+esc(e.dirNota):''}</div></div>
     <div class="doc-foot"><div class="doc-sign"><div class="line"></div>Assinatura do paciente</div><div class="doc-sign"><div class="line"></div>${esc(e.dirPor||'')} (Director)</div><div class="doc-sign"><div class="line"></div>${esc(inv.emitidaPor||'')} (Recepção)</div></div></div>`;
 }
 /* ---- créditos, parcelas e subsidiados ---- */
@@ -4083,15 +4121,17 @@ function openPagamento(invId){
     const tipoDoc = subPuro ? 'Subsídio' : (ve>0 ? 'Factura' : 'VD');
     const agora = new Date().toISOString();
     const upd = {numero: await docSeq(tipoDoc==='Subsídio' ? 'AS' : (tipoDoc==='VD'?'VD':'FT')), tipoDoc, ...(subPuro ? {naoFiscal:true} : {}), estado:'Pago', metodo, pagamentos:pm.pagamentos, refPagamento:refPag, pagoEm:agora, pagoPor:currentUser.nome,
-      emitidaEm:agora, emitidaPor:currentUser.nome, valorPaciente:vpPag, valorEntidade:ve, ...(E.aut ? {especial:{tipo:E.aut.tipo, motivo:E.aut.motivo, parceiro:E.aut.parceiro||'', valorDiferido:r2(vp-vpPag), entrada:vpPag, parcelas:E.aut.parcelas, adminPor:E.aut.adminPor, adminEm:E.aut.adminEm||'', dirPor:E.aut.dirPor, dirEm:E.aut.dirEm||'', dirNota:E.aut.dirNota||'', pedidoPor:E.aut.pedidoPor, fundamento:E.aut.fundamento||'', anexoId:E.aut.anexoId||'', anexoNome:E.aut.anexoNome||'', valorTotal:vp, numeroAut:(E.aut.tipo==='subsidiado' && !subPuro) ? await docSeq('AS') : ''}} : {}), estadoEntidade: ve>0 ? 'Pendente' : '', pagador:pg,
+      emitidaEm:agora, emitidaPor:currentUser.nome, valorPaciente:vpPag, valorEntidade:ve, ...(E.aut ? {especial:{tipo:E.aut.tipo, motivo:E.aut.motivo, parceiro:E.aut.parceiro||'', valorDiferido:r2(vp-vpPag), entrada:vpPag, isentosNomes:E.aut.isentosNomes||[], adminNota:E.aut.adminNota||'', parcelas:E.aut.parcelas, adminPor:E.aut.adminPor, adminEm:E.aut.adminEm||'', dirPor:E.aut.dirPor, dirEm:E.aut.dirEm||'', dirNota:E.aut.dirNota||'', pedidoPor:E.aut.pedidoPor, fundamento:E.aut.fundamento||'', anexoId:E.aut.anexoId||'', anexoNome:E.aut.anexoNome||'', valorTotal:vp, numeroAut:(E.aut.tipo==='subsidiado' && !subPuro) ? await docSeq('AS') : ''}} : {}), estadoEntidade: ve>0 ? 'Pendente' : '', pagador:pg,
       ...(mudou ? {valor:c.valor, itens:c.itens, ...(c.precoReferencia!==undefined ? {precoReferencia:c.precoReferencia} : {}), pagadorAlteradoNoCaixa:true} : {})};
     await Store.setDoc('invoices', inv.id, upd);
     if(inv.apptId){
       const a = appointments.find(x=>x.id===inv.apptId);
+      if(a && a.liberadoSubsidio) await Store.setDoc('appointments', a.id, {estadoPagamento: E.aut ? ESP_TIPOS[E.aut.tipo] : 'Pago'});
       if(a && a.estado==='Aguarda pagamento') await Store.setDoc('appointments', a.id, {estado:"Confirmada", estadoPagamento: E.aut ? ESP_TIPOS[E.aut.tipo] : (vp>0 ? "Pago" : "A crédito"),
         ...(mudou ? {pagador:pg, preco:c.valor, valorEntidade:ve, valorPaciente:vp, ...(c.precoReferencia!==undefined ? {precoReferencia:c.precoReferencia} : {})} : {})});
     }
-    if(inv.ordemId){   // tratamento ou exames: a confirmação no Caixa liberta a execução
+    const ordLib = inv.ordemId && (inv.ordemTipo==='tratamento' ? tratamentosPrescritos : pedidosExame).find(x=>x.id===inv.ordemId);
+    if(inv.ordemId && !(ordLib && ordLib.estado!=='Aguarda pagamento' && ordLib.liberadoSubsidio)){   // tratamento ou exames: a confirmação no Caixa liberta a execução
       await Store.setDoc(inv.ordemTipo==='tratamento' ? 'tratamentosPrescritos' : 'pedidosExame', inv.ordemId, {estado:"Pago", pagoEm:agora, factura:upd.numero,
         ...(mudou && c.ordemItens ? {pagador:pg, itens:c.ordemItens, total:c.valor} : {})});
     }
