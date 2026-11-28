@@ -1988,7 +1988,7 @@ function relReqDados(){
 }
 function relReqTabela(r, btn){
   return `<div class="table-wrap"><table class="${btn?'':'doc-table'}"><thead><tr><th>Requisição</th><th>Fornecedor</th><th>Valor</th><th>Fundos (envio → recepção)</th><th>Pagamento</th>${btn?'<th>Comprovativos</th>':''}</tr></thead><tbody>
-  ${r.linhas.map(q=>{const t=transferencias.find(x=>x.id===q.financiadaTransfId);return `<tr><td>${esc(q.numero)}</td><td>${esc(q.fornecedor)}</td><td style="text-align:right;">${num2(q.total)}</td>
+  ${r.linhas.map(q=>{const t=transferencias.find(x=>x.id===q.financiadaTransfId);return `<tr><td>${esc(q.numero)}</td><td>${esc(q.fornecedor)}<div class="cell-sub">NUIT ${esc(q.fornecedorNuit||'—')} · Fact. ${esc(q.taxaFactura||'—')}</div></td><td style="text-align:right;">${num2(q.total)}</td>
    <td>${t?`${esc(t.numero)} · ${fmtDate(t.data)} · ${esc(t.enviadoPor||'')}<div class="cell-sub">${t.estado==='Recebida'?'Recebido por '+esc(t.recebidaPor||'')+' em '+(t.recebidaEm?fmtDate(t.recebidaEm.slice(0,10)):''):'Por confirmar'}</div>`:'<span class="cell-sub">Pagamento directo</span>'}</td>
    <td>${fmtDate(q.pagaEm)} · ${esc(q.pagaPor||'')}<div class="cell-sub">${esc(q.pagaMetodo||'')}${q.pagaRef?' · '+esc(q.pagaRef):''}</div></td>
    ${btn?`<td style="white-space:nowrap;">${t&&t.comprovativoId?`<button class="btn sm ghost" onclick="anexoVer('${t.comprovativoId}')">📎 Envio (tesoureira)</button> `:''}${q.comprovativoId?`<button class="btn sm ghost" onclick="anexoVer('${q.comprovativoId}')">📎 Pagamento (financeira)</button>`:''}</td>`:''}</tr>`;}).join('')||`<tr><td colspan="${btn?6:5}"><div class="empty">Sem requisições pagas neste período.</div></td></tr>`}
@@ -5076,7 +5076,7 @@ function relDPDados(){
   const linhas = despesas.filter(d=>despPaga(d) && dentro(d.pagaEm||d.data||'')).map(d=>{
     const rq = d.requisicaoId ? requisicoes.find(r=>r.id===d.requisicaoId) : null;
     const perfil = rq ? ({financeira2:'Financeira (fundo)', tesoureira:'Tesoureira (directo)', director:'Director (directo)'})[rq.pagaPerfil]||'' : '';
-    return {id:d.id, data:d.pagaEm||d.data||'', numero:d.numero||'', req:d.requisicaoNumero||'', fornecedor:d.fornecedor||'', descricao:d.descricao||d.desc||'', categoria:d.categoria||'—', metodo:d.metodo||'—', ref:d.refPagamento||'',
+    return {id:d.id, data:d.pagaEm||d.data||'', numero:d.numero||'', req:d.requisicaoNumero||'', fornecedor:d.fornecedor||'', nuit:d.fornecedorNuit||(rq&&rq.fornecedorNuit)||'', factura:d.docFornecedor||(rq&&rq.taxaFactura)||'', descricao:d.descricao||d.desc||'', categoria:d.categoria||'—', metodo:d.metodo||'—', ref:d.refPagamento||'',
       quem:(rq&&rq.pagaPor)||d.registadoPor||'—', perfil, total:despTotal(d), comp:d.comprovativoId||''};
   }).filter(l=>(!relDP.cat||l.categoria===relDP.cat)&&(!relDP.metodo||l.metodo===relDP.metodo)&&(!relDP.quem||l.quem===relDP.quem)&&(!relDP.forn||l.fornecedor.toLowerCase().includes(relDP.forn.toLowerCase()))).sort((a,b)=>a.data.localeCompare(b.data));
   const soma = k => { const o={}; linhas.forEach(l=>{ o[l[k]||'—']=r2((o[l[k]||'—']||0)+l.total); }); return Object.entries(o).sort((a,b)=>b[1]-a[1]); };
@@ -5087,9 +5087,9 @@ function relDPResumoHtml(r){
   return `<div style="display:flex;gap:18px;flex-wrap:wrap;margin:10px 0;">${bloco('Por categoria', r.porCat)}${bloco('Por método de pagamento', r.porMet)}${bloco('Por quem pagou', r.porQuem)}</div>`;
 }
 function relDPTabela(r, comBotoes){
-  return `<div class="table-wrap"><table class="${comBotoes?'':'doc-table'}"><thead><tr><th>Data</th><th>Nº</th><th>Req.</th><th>Fornecedor / descrição</th><th>Categoria</th><th>Método / ref.</th><th>Pago por</th><th style="text-align:right;">Valor (MZN)</th>${comBotoes?'<th></th>':''}</tr></thead><tbody>
-  ${r.linhas.map(l=>`<tr><td>${fmtDate(l.data)}</td><td>${esc(l.numero)}</td><td>${esc(l.req)}</td><td>${esc(l.fornecedor)}<div class="cell-sub">${esc(l.descricao)}</div></td><td>${esc(l.categoria)}</td><td>${esc(l.metodo)}${l.ref?'<div class="cell-sub">'+esc(l.ref)+'</div>':''}</td><td>${esc(l.quem)}${l.perfil?'<div class="cell-sub">'+esc(l.perfil)+'</div>':''}</td><td style="text-align:right;"><b>${num2(l.total)}</b></td>${comBotoes?`<td>${l.comp?`<button class="btn sm ghost" onclick="anexoVer('${l.comp}')">📎</button>`:''}</td>`:''}</tr>`).join('') || `<tr><td colspan="${comBotoes?9:8}"><div class="empty">Sem despesas pagas neste período.</div></td></tr>`}
-  </tbody><tfoot><tr><td colspan="7" style="text-align:right;"><b>Total pago</b></td><td style="text-align:right;"><b>${num2(r.total)}</b></td>${comBotoes?'<td></td>':''}</tr></tfoot></table></div>`;
+  return `<div class="table-wrap"><table class="${comBotoes?'':'doc-table'}"><thead><tr><th>Data</th><th>Nº</th><th>Req.</th><th>Fornecedor / NUIT</th><th>Nº factura</th><th>Descrição</th><th>Categoria</th><th>Método / ref.</th><th>Pago por</th><th style="text-align:right;">Valor (MZN)</th>${comBotoes?'<th></th>':''}</tr></thead><tbody>
+  ${r.linhas.map(l=>`<tr><td>${fmtDate(l.data)}</td><td>${esc(l.numero)}</td><td>${esc(l.req)}</td><td>${esc(l.fornecedor)}<div class="cell-sub">NUIT ${esc(l.nuit||'—')}</div></td><td>${esc(l.factura||'—')}</td><td class="cell-sub">${esc(l.descricao)}</td><td>${esc(l.categoria)}</td><td>${esc(l.metodo)}${l.ref?'<div class="cell-sub">'+esc(l.ref)+'</div>':''}</td><td>${esc(l.quem)}${l.perfil?'<div class="cell-sub">'+esc(l.perfil)+'</div>':''}</td><td style="text-align:right;"><b>${num2(l.total)}</b></td>${comBotoes?`<td>${l.comp?`<button class="btn sm ghost" onclick="anexoVer('${l.comp}')">📎</button>`:''}</td>`:''}</tr>`).join('') || `<tr><td colspan="${comBotoes?11:10}"><div class="empty">Sem despesas pagas neste período.</div></td></tr>`}
+  </tbody><tfoot><tr><td colspan="9" style="text-align:right;"><b>Total pago</b></td><td style="text-align:right;"><b>${num2(r.total)}</b></td>${comBotoes?'<td></td>':''}</tr></tfoot></table></div>`;
 }
 function finDespPagas(){
   const r = relDPDados(), tipos = [['dia','Hoje'],['semana','Últimos 7 dias'],['mes','Este mês'],['semestre','Últimos 6 meses'],['ano','Este ano'],['custom','Intervalo personalizado']];
@@ -5110,9 +5110,9 @@ function imprimirDespPagas(){
 }
 function exportarDespPagas(){
   const r = relDPDados(), q = v => '"'+String(v==null?'':v).replace(/"/g,'""')+'"';
-  const linhas = [['Data','Nº despesa','Requisição','Fornecedor','Descrição','Categoria','Método','Referência','Pago por','Perfil','Valor MZN'].map(q).join(';')]
-    .concat(r.linhas.map(l=>[l.data,l.numero,l.req,l.fornecedor,l.descricao,l.categoria,l.metodo,l.ref,l.quem,l.perfil,String(l.total).replace('.',',')].map(q).join(';')));
-  linhas.push(['','','','','','','','','','Total',String(r.total).replace('.',',')].map(q).join(';'));
+  const linhas = [['Data','Nº despesa','Requisição','Fornecedor','NUIT','Nº factura','Descrição','Categoria','Método','Referência','Pago por','Perfil','Valor MZN'].map(q).join(';')]
+    .concat(r.linhas.map(l=>[l.data,l.numero,l.req,l.fornecedor,l.nuit,l.factura,l.descricao,l.categoria,l.metodo,l.ref,l.quem,l.perfil,String(l.total).replace('.',',')].map(q).join(';')));
+  linhas.push(['','','','','','','','','','','','Total',String(r.total).replace('.',',')].map(q).join(';'));
   baixarFicheiro(`despesas-pagas-${r.pd.de}_${r.pd.ate}.csv`, '﻿'+linhas.join('\r\n'), 'text/csv;charset=utf-8');
   audit('exportar','Relatório','Despesas pagas',`${r.linhas.length} linhas`);
 }
@@ -5120,7 +5120,7 @@ function exportarDespPagas(){
 /* ---- Parâmetros fiscais ---- */
 function finParametros(){
   const admFin = ['admin','financeiro'].includes(currentUser.role), ro = admFin?'':'readonly';
-  const es = irpsEscaloes(), iv = param('ivaVenda', {}) || {};
+  const iv = param('ivaVenda', {}) || {};
   return `<div class="card"><h3>Parâmetros fiscais</h3><div class="csub">Valores iniciais habituais em Moçambique, <b>todos editáveis</b> — confirme sempre com o contabilista e a legislação em vigor (a tabela do IRPS e as taxas mudam por lei/orçamento).</div>
     <div class="field-row"><div class="field"><label>Taxas de IVA disponíveis nas despesas (%, separadas por vírgula)</label><input id="pf-iva" type="text" value="${esc(String(param('ivaTaxas','16,0')))}" ${ro}></div>
       <div class="field"><label>INSS — trabalhador (%)</label><input id="pf-inss-t" type="number" step="any" value="${param('inssTrabalhador',3)}" ${ro}></div>
@@ -5128,21 +5128,14 @@ function finParametros(){
     <h4 style="margin:16px 0 6px;">IVA nas vendas (taxa incluída nos preços, por tipo de documento)</h4>
     <div class="field-row">${TIPOS_VENDA.map(t=>`<div class="field"><label>${t} (%)</label><input id="pf-ivav-${t}" type="number" step="any" value="${iv[t]!==undefined?iv[t]:0}" ${ro}></div>`).join('')}</div>
     <div class="csub">Deixe 0% para serviços isentos (consultas, exames, medicamentos costumam ser isentos de IVA na saúde — confirme com o contabilista).</div>
-    <h4 style="margin:16px 0 6px;">IRPS — trabalho dependente (categoria 1), tabela mensal</h4>
-    <div class="table-wrap"><table><thead><tr><th>Escalão</th><th>Rendimento mensal até (MZN) — vazio = sem limite</th><th>Taxa (%)</th><th>Parcela a abater (MZN)</th></tr></thead><tbody>
-    ${es.map((e,i)=>`<tr><td>${i+1}º</td><td><input id="pf-ir-ate-${i}" type="number" step="any" value="${e.ate===null||e.ate===undefined?'':e.ate}" ${ro}></td><td><input id="pf-ir-taxa-${i}" type="number" step="any" value="${e.taxa}" ${ro}></td><td><input id="pf-ir-parc-${i}" type="number" step="any" value="${e.parcela||0}" ${ro}></td></tr>`).join('')}</tbody></table></div>
-    <div class="field-row" style="margin-top:10px;">${depDeducoes().map((v,i)=>`<div class="field"><label>Dedução mensal ao imposto — ${i<3?(i+1)+' dependente'+(i?'s':''):'4 ou mais dependentes'} (MZN)</label><input id="pf-dep-${i}" type="number" step="any" value="${v}" ${ro}></div>`).join('')}</div>
-    <div class="csub">Referência: Código do IRPS, art. 60.º — 600, 900, 1 200 e 1 800 MZN por ano (÷ 12). A dedução nunca faz o imposto ficar negativo.</div>
-    ${admFin?`<button class="btn sm" type="button" onclick="irpsRepor()">Repor tabela de referência 2025</button>`:''}
+    <h4 style="margin:16px 0 6px;">IRPS — trabalho dependente (categoria 1), tabela mensal de retenção na fonte</h4>
+    <div class="csub">Fórmula: <b>IRPS = (Rendimento − limite inferior) × taxa + valor fixo</b>, com o valor fixo conforme o nº de dependentes aceites. Tabela fixa por lei (Lei 33/2007, Lei 19/2017 e Lei 11/2025).</div>
+    <div class="table-wrap"><table><thead><tr><th>De (MZN)</th><th>Até (MZN)</th><th>Taxa</th><th>0 dep.</th><th>1</th><th>2</th><th>3</th><th>4 ou +</th></tr></thead><tbody>
+    ${IRPS_TAB.map(e=>`<tr><td>${fmtMZN(e.min)}</td><td>${e.max===Infinity?'sem limite':fmtMZN(e.max)}</td><td>${e.taxa*100}%</td>${e.fixos.map(f=>`<td>${f===null?'—':num2(f)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
     <div class="field-row" style="margin-top:10px;"><div class="field"><label>Dedução mensal à base do IRPS (MZN)</label><input id="pf-ir-ded" type="number" step="any" value="${param('irpsDeducao',0)}" ${ro}></div>
-      <div class="field"><label>INSS do trabalhador é deduzido à base do IRPS?</label><select id="pf-ir-inss" ${admFin?'':'disabled'}><option value="sim" ${param('inssDeduzIrps','sim')==='sim'?'selected':''}>Sim</option><option value="nao" ${param('inssDeduzIrps','sim')==='nao'?'selected':''}>Não</option></select></div>
+      <div class="field"><label>INSS do trabalhador é deduzido à base do IRPS?</label><select id="pf-ir-inss" ${admFin?'':'disabled'}><option value="nao" ${param('irpsDeduzInss','nao')==='nao'?'selected':''}>Não (por defeito)</option><option value="sim" ${param('irpsDeduzInss','nao')==='sim'?'selected':''}>Sim</option></select></div>
       <div class="field"><label>Dias para o cálculo do desconto por falta (salário ÷ dias)</label><input id="pf-dias" type="number" step="1" value="${param('diasSalario',30)}" ${ro}></div></div>
     ${admFin?`<button class="btn solid" onclick="guardarParametros()">Guardar parâmetros</button>`:''}</div>`;
-}
-async function irpsRepor(){
-  if(!['admin','financeiro'].includes(currentUser.role) || !confirm('Repor os escalões do IRPS e as deduções por dependentes para os valores de referência de 2025?')) return;
-  await Store.setDoc('config','main', {irpsEscaloes:IRPS_DEF, irpsDepMensal:DEP_DEDUC_DEF});
-  audit('parametros_fiscais', 'Configuração', '', 'tabela IRPS de referência reposta'); toast('✅ Tabela de referência reposta.');
 }
 async function guardarParametros(){
   if(!['admin','financeiro'].includes(currentUser.role)) return;
@@ -5151,22 +5144,10 @@ async function guardarParametros(){
   const t = Number(el('pf-inss-t').value), e = Number(el('pf-inss-e').value);
   if(isNaN(t) || isNaN(e) || t<0 || e<0 || t>100 || e>100){ toast("⚠️ Percentagens do INSS inválidas."); return; }
   const ivaVenda = {}; for(const tp of TIPOS_VENDA){ const v = Number(el('pf-ivav-'+tp).value); if(isNaN(v)||v<0||v>100){ toast("⚠️ IVA de vendas inválido."); return; } ivaVenda[tp] = v; }
-  const escaloes = []; let i = 0, prev = -1;
-  while(el('pf-ir-taxa-'+i)){
-    const at = el('pf-ir-ate-'+i).value.trim(), tx = Number(el('pf-ir-taxa-'+i).value), pc = Number(el('pf-ir-parc-'+i).value||0);
-    if(isNaN(tx)||tx<0||tx>100||isNaN(pc)||pc<0){ toast("⚠️ Escalão "+(i+1)+" do IRPS inválido."); return; }
-    const lim = at===''?null:Number(at);
-    if(lim!==null && (isNaN(lim)||lim<=prev)){ toast("⚠️ Os limites dos escalões têm de ser crescentes."); return; }
-    if(lim===null && el('pf-ir-taxa-'+(i+1))){ toast("⚠️ Só o último escalão pode não ter limite."); return; }
-    if(lim!==null) prev = lim;
-    escaloes.push({ate:lim, taxa:tx, parcela:pc}); i++;
-  }
-  if(!escaloes.length || escaloes[escaloes.length-1].ate!==null){ toast("⚠️ O último escalão deve ficar sem limite."); return; }
   const ded = Number(el('pf-ir-ded').value||0), dias = Number(el('pf-dias').value);
   if(isNaN(ded)||ded<0||!(dias>=20&&dias<=31)){ toast("⚠️ Dedução ou dias de cálculo inválidos (20 a 31 dias)."); return; }
-  const depM = [0,1,2,3].map(i=>Number(el('pf-dep-'+i).value)); if(depM.some(x=>isNaN(x)||x<0)){ toast('⚠️ Deduções por dependentes inválidas.'); return; }
-  await Store.setDoc('config','main', {irpsDepMensal:depM, ivaTaxas: taxas.join(','), inssTrabalhador:t, inssEmpregador:e, ivaVenda, irpsEscaloes:escaloes, irpsDeducao:ded, inssDeduzIrps:el('pf-ir-inss').value, diasSalario:dias});
-  audit('parametros_fiscais', 'Configuração', '', `IVA ${taxas.join('/')} · INSS ${t}% + ${e}% · IRPS ${escaloes.length} escalões`);
+  await Store.setDoc('config','main', {ivaTaxas: taxas.join(','), inssTrabalhador:t, inssEmpregador:e, ivaVenda, irpsDeducao:ded, irpsDeduzInss:el('pf-ir-inss').value, diasSalario:dias});
+  audit('parametros_fiscais', 'Configuração', '', `IVA ${taxas.join('/')} · INSS ${t}% + ${e}%`);
   toast("✅ Parâmetros guardados.");
 }
 
@@ -5238,12 +5219,23 @@ function presencaTopo(){
 
 /* ---- IRPS e folha ---- */
 /* Tabela mensal de retenção na fonte (trabalho dependente), referência 2025: isento até 20 249,99; imposto = taxa × rendimento − parcela a abater (equivale a: valor fixo + taxa sobre o excesso do escalão). */
-const IRPS_DEF = [{ate:20249.99,taxa:0,parcela:0},{ate:22249.99,taxa:10,parcela:2025},{ate:32749.99,taxa:15,parcela:3137.5},{ate:60749.99,taxa:20,parcela:4775},{ate:144749.99,taxa:25,parcela:7812.5},{ate:null,taxa:32,parcela:17945}];
-function irpsEscaloes(){ const e = param('irpsEscaloes', null); return Array.isArray(e) && e.length ? e : IRPS_DEF; }
-function calcIrps(base){
-  base = Number(base)||0; if(base<=0) return 0;
-  const es = irpsEscaloes(), e = es.find(x=>x.ate===null||x.ate===''||x.ate===undefined||base<=Number(x.ate)) || es[es.length-1];
-  return Math.max(0, r2(base*Number(e.taxa)/100 - Number(e.parcela||0)));
+/* IRPS — retenção mensal na fonte (Lei 33/2007, Lei 19/2017, Lei 11/2025): IRPS = (R − limite inferior) × taxa + valor fixo (conforme nº de dependentes; 4 = 4 ou mais). null = sem retenção. */
+const IRPS_TAB = [
+  {min:0,      max:20249.99,  taxa:0,    fixos:[null,null,null,null,null]},
+  {min:20250,  max:20749.99,  taxa:0.10, fixos:[0,null,null,null,null]},
+  {min:20750,  max:20999.99,  taxa:0.10, fixos:[50,0,null,null,null]},
+  {min:21000,  max:21249.99,  taxa:0.10, fixos:[75,25,0,null,null]},
+  {min:21250,  max:21749.99,  taxa:0.10, fixos:[100,50,25,0,null]},
+  {min:21750,  max:22249.99,  taxa:0.10, fixos:[150,100,75,50,0]},
+  {min:22250,  max:32749.99,  taxa:0.15, fixos:[200,150,125,100,50]},
+  {min:32750,  max:60749.99,  taxa:0.20, fixos:[1775,1725,1700,1675,1625]},
+  {min:60750,  max:144749.99, taxa:0.25, fixos:[7375,7325,7300,7275,7225]},
+  {min:144750, max:Infinity,  taxa:0.32, fixos:[28375,28325,28300,28275,28225]}];
+function irpsRetencao(R, nDep){
+  R = Number(R)||0; if(R<=0) return 0;
+  const e = IRPS_TAB.find(x=>R>=x.min && R<=x.max) || IRPS_TAB[IRPS_TAB.length-1], fixo = e.fixos[Math.min(Math.max(parseInt(nDep,10)||0,0),4)];
+  if(e.taxa===0 || fixo===null) return 0;
+  return r2((R-e.min)*e.taxa + fixo);
 }
 function funcsDoMes(mes){ return funcionarios.filter(f=>f.ativo!==false && (!f.dataAdmissao || String(f.dataAdmissao).slice(0,7)<=mes)); }
 function assiMes(fid, mes){
@@ -5257,8 +5249,8 @@ function folhaLinha(f, mes){
   const base = Number(f.salarioBase)||0, dias = paramNum('diasSalario', 30), as = assiMes(f.id, mes), nf = as.faltasInj + as.semVenc;
   const desc = r2(base/dias*nf), bruto = Math.max(0, r2(base-desc));
   const inssT = r2(bruto*paramNum('inssTrabalhador',3)/100), inssE = r2(bruto*paramNum('inssEmpregador',4)/100);
-  const baseIrps = Math.max(0, r2(bruto - (param('inssDeduzIrps','sim')==='sim' ? inssT : 0) - paramNum('irpsDeducao',0)));
-  const nDep = depElegiveis(f).length, irpsBruto = calcIrps(baseIrps), dedDep = Math.min(irpsBruto, depDeducaoMensal(nDep)), irps = r2(irpsBruto - dedDep), ads = adiantParcelas(f.id, mes), adTot = r2(ads.reduce((s,x)=>s+x.valor,0));
+  const baseIrps = Math.max(0, r2(bruto - (param('irpsDeduzInss','nao')==='sim' ? inssT : 0) - paramNum('irpsDeducao',0)));
+  const nDep = depElegiveis(f).length, irps = irpsRetencao(baseIrps, nDep), irpsBruto = irps, dedDep = 0, ads = adiantParcelas(f.id, mes), adTot = r2(ads.reduce((s,x)=>s+x.valor,0));
   return {funcId:f.id, nome:f.nome, cargo:f.cargo||'', nuit:f.nuit||'', base, faltas:nf, descFaltas:desc, bruto, inssT, inssE, baseIrps, irpsBruto, nDep, dedDep, irps, adiant:adTot, liquido:r2(bruto-inssT-irps-adTot), parcelas:ads};
 }
 function folhaTotais(l){ const s = k => r2(l.reduce((t,x)=>t+(Number(x[k])||0),0)); return {totBase:s('base'), totBruto:s('bruto'), totInssT:s('inssT'), totInssE:s('inssE'), totIrps:s('irps'), totAdiant:s('adiant'), totLiquido:s('liquido')}; }
@@ -5363,7 +5355,7 @@ function folhaRecibo(fid){
     <tr><td>Desconto por faltas (${l.faltas})</td><td style="text-align:right;">− ${fmtMZN(l.descFaltas)}</td></tr>
     <tr><td><b>Remuneração bruta</b></td><td style="text-align:right;"><b>${fmtMZN(l.bruto)}</b></td></tr>
     <tr><td>INSS (${paramNum('inssTrabalhador',3)}%)</td><td style="text-align:right;">− ${fmtMZN(l.inssT)}</td></tr>
-    <tr><td>IRPS (base ${fmtMZN(l.baseIrps)}${l.nDep?` · ${l.nDep} dependente(s): −${fmtMZN(l.dedDep)}`:''})</td><td style="text-align:right;">− ${fmtMZN(l.irps)}</td></tr>
+    <tr><td>IRPS (base ${fmtMZN(l.baseIrps)}${l.nDep?` · ${l.nDep} dependente(s)`:''})</td><td style="text-align:right;">− ${fmtMZN(l.irps)}</td></tr>
     <tr><td>Desconto de adiantamentos</td><td style="text-align:right;">− ${fmtMZN(l.adiant)}</td></tr>
     <tr><td><b>Salário líquido</b></td><td style="text-align:right;"><b>${fmtMZN(l.liquido)}</b></td></tr></tbody></table>
     <div style="margin-top:40px;display:flex;gap:40px;font-size:12px;"><div style="flex:1;border-top:1px solid #000;padding-top:4px;">A entidade empregadora</div><div style="flex:1;border-top:1px solid #000;padding-top:4px;">O trabalhador</div></div>${docFooter(currentUser.nome)}</div>`);
@@ -5920,7 +5912,7 @@ function d_all(q){ return document.querySelectorAll(q); }
 function depRes(){
   const l = depLer(), rows = [...d_all('#ff-deps [data-dep]')]; let n = 0;
   l.forEach((d,i)=>{ const v = depValida(d); if(v.ok) n++; rows[i].querySelector('.dp-estado').innerHTML = v.ok ? '<span class="tag green">Aceite para o IRPS</span>' : `<span class="tag red">Não conta: ${esc(v.motivo)}</span>`; });
-  const r = el('ff-deps-res'); if(r) r.innerHTML = l.length ? `<b>${n}</b> dependente(s) aceite(s) · dedução mensal ao IRPS: <b>${fmtMZN(depDeducaoMensal(n))}</b>` : 'Sem dependentes registados.';
+  const r = el('ff-deps-res'); if(r) r.innerHTML = l.length ? `<b>${n}</b> dependente(s) aceite(s) · usados na tabela de retenção do IRPS (${Math.min(n,4)}${n>=4?' ou mais':''})` : 'Sem dependentes registados.';
 }
 function depTexto(l){ return (l||[]).map(d=>`${d.nome} (${d.idade}, ${(DEP_PARENTESCO.find(p=>p[0]===d.parentesco)||[])[0]||'?'}, ${d.doc})`).join('; '); }
 
