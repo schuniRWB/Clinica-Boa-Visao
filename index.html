@@ -1098,7 +1098,7 @@ tbody tr:last-child td{border-bottom:none;}
       </div>
       <div class="field-row">
         <div class="field"><label>Estado</label><select id="df-estado" onchange="dfEstadoChanged()"><option>Paga</option><option>Pendente</option></select></div>
-        <div class="field" id="df-metodo-box"><label>Método de pagamento</label><select id="df-metodo"><option>Numerário</option><option>Transferência bancária</option><option>Cheque</option><option>POS</option><option>Carteira Móvel</option></select></div>
+        <div class="field" id="df-metodo-box"><label>Método de pagamento</label><select id="df-metodo"><option>Numerário</option><option>Transferência bancária</option><option>Cheque</option><option>POS</option><option>M-Pesa</option><option>e-Mola</option></select></div>
         <div class="field" id="df-ref-box"><label>Referência do pagamento</label><input id="df-ref" type="text"></div>
       </div>
       <div class="field"><label>Observações</label><textarea id="df-obs"></textarea></div>
@@ -1118,7 +1118,7 @@ tbody tr:last-child td{border-bottom:none;}
       <div class="muted-note" id="pd-info" style="margin-bottom:12px;"></div>
       <div class="field-row">
         <div class="field"><label>Data do pagamento</label><input id="pd-data" type="date"></div>
-        <div class="field"><label>Método</label><select id="pd-metodo"><option>Transferência bancária</option><option>Numerário</option><option>Cheque</option><option>POS</option><option>Carteira Móvel</option></select></div>
+        <div class="field"><label>Método</label><select id="pd-metodo"><option>Transferência bancária</option><option>Numerário</option><option>Cheque</option><option>POS</option><option>M-Pesa</option><option>e-Mola</option></select></div>
       </div>
       <div class="field"><label>Referência / nº do comprovativo</label><input id="pd-ref" type="text"></div>
     </div>
@@ -1136,7 +1136,7 @@ tbody tr:last-child td{border-bottom:none;}
         <div class="field"><label>Valor pago (MZN)</label><input id="inss-valor" type="number" min="0" step="any"></div>
       </div>
       <div class="field-row">
-        <div class="field"><label>Método</label><select id="inss-metodo"><option>Transferência bancária</option><option>Numerário</option><option>Cheque</option><option>Carteira Móvel</option></select></div>
+        <div class="field"><label>Método</label><select id="inss-metodo"><option>Transferência bancária</option><option>Numerário</option><option>Cheque</option><option>M-Pesa</option><option>e-Mola</option></select></div>
         <div class="field"><label>Nº da guia / comprovativo</label><input id="inss-ref" type="text"></div>
       </div>
     </div>
@@ -1311,6 +1311,10 @@ const Store = {
     if(USE_FIREBASE){ const snap = await (serverOnly ? fsdb.collection(col).get({source:'server'}) : fsdb.collection(col).get()); return snap.docs.map(d=>({id:d.id, ...d.data()})); }
     else { return lsGetAll(col); }
   },
+  async getDocById(col, id){
+    if(USE_FIREBASE){ const sn = await fsdb.collection(col).doc(String(id)).get(); return sn.exists ? {id:sn.id, ...sn.data()} : null; }
+    return lsGetAll(col).find(x=>x.id===String(id)) || null;
+  },
   /* escrita em massa (importação / restauro): rápida e sem uma linha de auditoria por registo */
   async bulkSet(col, docs, onProgress){
     if(USE_FIREBASE){
@@ -1437,7 +1441,7 @@ const Store = {
    -------------------------------------------------------------------- */
 const AUDIT_COLS = {patients:'Paciente', appointments:'Consulta', invoices:'Factura', users:'Utilizador', especialidades:'Especialidade',
   tratamentos:'Tratamento (catálogo)', exames:'Exame (catálogo)', tratamentosPrescritos:'Tratamento prescrito', pedidosExame:'Pedido de exames',
-  receitas:'Receita', prontuarios:'Prontuário', medicamentos:'Produto', vendas:'Venda', despesas:'Despesa', funcionarios:'Funcionário', requisicoes:'Requisição de pagamento', salarios:'Folha de salários', assiduidade:'Assiduidade', adiantamentos:'Adiantamento', feriasPlano:'Férias', disciplinares:'Procedimento disciplinar', fundoManeio:'Fundo de maneio', reconciliacoes:'Reconciliação bancária', apuramentosIva:'Apuramento do IVA', config:'Configuração',
+  receitas:'Receita', prontuarios:'Prontuário', medicamentos:'Produto', vendas:'Venda', despesas:'Despesa', funcionarios:'Funcionário', requisicoes:'Requisição de pagamento', transferencias:'Envio de fundos', salarios:'Folha de salários', assiduidade:'Assiduidade', adiantamentos:'Adiantamento', feriasPlano:'Férias', disciplinares:'Procedimento disciplinar', fundoManeio:'Fundo de maneio', reconciliacoes:'Reconciliação bancária', apuramentosIva:'Apuramento do IVA', config:'Configuração',
   empresas:'Empresa', seguradoras:'Seguradora', internamentos:'Internamento', cardex:'Prescrição (cardex)', camas:'Cama', referenciacoes:'Encaminhamento', beneficiarios:'Beneficiário', recebimentos:'Recebimento de entidade', tratamentosInt:'Tratamento (internamento)', planos:'Plano terapêutico'};
 const AUDIT_KEYS = ['estado','estadoPagamento','valor','total','preco','stock','stockMin','role','ativo','metodo','username','tipo','data','hora','medicoId','salarioBase','faltasMes','nome','valorEntidade','valorPaciente','estadoEntidade','comparticipacao','tipoDoc','destino','internamentoId','entidadePago','validado','acordoFim','limiteAnual'];
 const AUDIT_HIDE = ['passwordHash','salt','pin'];
@@ -1626,7 +1630,7 @@ const LIMPAR_GRUPOS = {
   clinico:{nome:'Pacientes e atendimento', txt:'pacientes, consultas, fila, prontuários, receitas, alertas, emails, pedidos de exames e tratamentos, internamentos (as camas ficam livres), encaminhamentos e beneficiários',
     cols:['patients','appointments','queue','prontuarios','receitas','alertas','emails','tratamentosPrescritos','pedidosExame','referenciacoes','beneficiarios','internamentos','cardex','administracoes','diarioEnfermagem','sinaisVitais','passagensTurno','contasInt','tratamentosInt','internadosAtivos'], def:true},
   caixa:{nome:'Caixa e vendas', txt:'facturas, VD e recibos, vendas da farmácia, recebimentos de entidades e movimentos de stock', cols:['invoices','vendas','recebimentos','movimentosStock'], def:true},
-  contab:{nome:'Contabilidade e RH de teste', txt:'despesas, requisições de pagamento, fundo de maneio, reconciliações, apuramentos de IVA, folhas de salários, assiduidade, adiantamentos, férias e procedimentos disciplinares (os funcionários ficam)', cols:['despesas','requisicoes','fundoManeio','reconciliacoes','apuramentosIva','salarios','assiduidade','adiantamentos','feriasPlano','disciplinares','presenca'], def:false},
+  contab:{nome:'Contabilidade e RH de teste', txt:'despesas, requisições de pagamento, fundo de maneio, reconciliações, apuramentos de IVA, folhas de salários, assiduidade, adiantamentos, férias e procedimentos disciplinares (os funcionários ficam)', cols:['despesas','requisicoes','transferencias','anexos','fundoManeio','reconciliacoes','apuramentosIva','salarios','assiduidade','adiantamentos','feriasPlano','disciplinares','presenca'], def:false},
   numeracao:{nome:'Reiniciar a numeração', txt:'os números de pacientes (NID), facturas, receitas, etc. voltam a começar do 1', cols:['contadores'], def:true}
 };
 function cardLimparTeste(){
@@ -1714,8 +1718,8 @@ function roleLabel(u){
   return roleName(u.role);
 }
 const REQ_NATUREZA = {corrente:'Corrente e pontual', naocorrente:'Não corrente (só o Director autoriza)'};
-const REQ_FONTES = ['Transf. bancária','Cheque','Caixa'];
-const REQ_METODO = {'Transf. bancária':'Transferência bancária', 'Cheque':'Cheque', 'Caixa':'Numerário'};
+const REQ_FONTES = ['Transf. bancária','Cheque','Caixa','M-Pesa','e-Mola'];
+const REQ_METODO = {'Transf. bancária':'Transferência bancária', 'Cheque':'Cheque', 'Caixa':'Numerário', 'M-Pesa':'M-Pesa', 'e-Mola':'e-Mola'};
 const num2 = n => Number(n||0).toLocaleString('pt-PT',{minimumFractionDigits:2, maximumFractionDigits:2});
 function reqPendentesMinhas(){
   if(ehTesoureiro()) return requisicoes.filter(r=>r.estado==='Emitida');
@@ -1754,11 +1758,11 @@ function viewRequisicoes(){
   const l = [...requisicoes].filter(r=>reqFiltro==='todas' || ids.has(r.id)).sort((a,b)=>(b.numero||'').localeCompare(a.numero||''));
   return `<div class="page-head"><div><h1>Requisições de pagamento</h1><div class="desc">${ehFin2()?'Emita a requisição; a tesoureira verifica a conformidade e o Director autoriza.':ehTesoureiro()?'Verifique a conformidade. Pode autorizar despesas correntes e pontuais; as restantes são autorizadas pelo Director.':'Autorize ou rejeite as requisições. Se a tesoureira já autorizou, dê o seu visto.'}</div></div>
     ${ehFin2()?`<div class="page-actions"><button class="btn solid" onclick="reqForm()">+ Nova requisição</button></div>`:''}</div>
-  <div class="tabs"><div class="tab ${reqFiltro==='tratar'?'active':''}" onclick="reqSetFiltro('tratar')">Por tratar (${minhas.length})</div><div class="tab ${reqFiltro==='todas'?'active':''}" onclick="reqSetFiltro('todas')">Todas (${requisicoes.length})</div></div>
-  <div class="card"><div class="table-wrap"><table><thead><tr><th>Nº</th><th>Data</th><th>Fornecedor</th><th>Propósito</th><th>Total</th><th>Natureza</th><th>Estado</th><th></th></tr></thead><tbody>
+  <div class="tabs"><div class="tab ${reqFiltro==='tratar'?'active':''}" onclick="reqSetFiltro('tratar')">Por tratar (${minhas.length})</div><div class="tab ${reqFiltro==='todas'?'active':''}" onclick="reqSetFiltro('todas')">Todas (${requisicoes.length})</div><div class="tab ${reqFiltro==='fundos'?'active':''}" onclick="reqSetFiltro('fundos')">Fundos e pagamentos</div></div>
+  ${reqFiltro==='fundos' ? viewReqFundos() : `<div class="card"><div class="table-wrap"><table><thead><tr><th>Nº</th><th>Data</th><th>Fornecedor</th><th>Propósito</th><th>Total</th><th>Natureza</th><th>Estado</th><th></th></tr></thead><tbody>
   ${l.map(r=>`<tr><td>${esc(r.numero)}</td><td class="cell-sub">${fmtDate(r.elaboradoEm)}</td><td class="cell-name">${esc(r.fornecedor)}</td><td class="cell-sub">${esc((r.proposito||'').slice(0,60))}</td><td><b>MZN ${num2(r.total)}</b></td><td class="cell-sub">${r.natureza==='corrente'?'Corrente e pontual':'Não corrente'}</td>
     <td>${reqTag(r)}${r.estado==='Rejeitada'||r.estado==='Não conforme'?`<div class="cell-sub" style="color:#b00;max-width:220px;">${esc(r.motivo||'')}</div>`:''}${r.vistoDirector?`<div class="cell-sub">Visto do Director${r.vistoDirector.nota?': '+esc(r.vistoDirector.nota):''}</div>`:''}</td>
-    <td style="white-space:nowrap;">${reqAcoes(r)}</td></tr>`).join('') || `<tr><td colspan="8"><div class="empty">${reqFiltro==='tratar'?'Nada por tratar.':'Ainda não há requisições.'}</div></td></tr>`}</tbody></table></div></div>`;
+    <td style="white-space:nowrap;">${reqAcoes(r)}</td></tr>`).join('') || `<tr><td colspan="8"><div class="empty">${reqFiltro==='tratar'?'Nada por tratar.':'Ainda não há requisições.'}</div></td></tr>`}</tbody></table></div></div>`}`;
 }
 function reqAcoes(r){
   const b = [`<button class="btn sm ghost" onclick="reqVer('${r.id}')">Ver</button>`], pend = r.estado==='Emitida' || r.estado==='Conforme';
@@ -1767,7 +1771,11 @@ function reqAcoes(r){
   if(ehTesoureiro() && pend && r.natureza==='corrente'){ b.push(`<button class="btn sm solid" onclick="reqAutorizar('${r.id}')">Autorizar</button>`); }
   if(ehDirector() && pend){ b.push(`<button class="btn sm solid" onclick="reqAutorizar('${r.id}')">Autorizar</button><button class="btn sm danger" onclick="reqRejeitar('${r.id}')">Rejeitar</button>`); }
   if(ehDirector() && r.estado==='Autorizada' && r.autorizadoNivel==='tesoureira' && !r.vistoDirector){ b.push(`<button class="btn sm solid" onclick="reqVisto('${r.id}')">Dar visto</button>`); }
-  if(r.estado==='Autorizada' && !r.paga && (ehTesoureiro() || ehFin2())){ b.push(`<button class="btn sm" onclick="reqPagar('${r.id}')">Registar pagamento</button>`); }
+  if(r.estado==='Autorizada' && !r.paga){
+    if(ehFin2()) b.push(`<button class="btn sm solid" onclick="reqPagar('${r.id}')">Pagar (do fundo)</button>`);
+    else if(ehTesoureiro() || ehDirector()) b.push(r.financiadaTransfId ? `<span class="tag blue">Financiada ${esc(r.financiadaTransfNumero||'')}</span>` : `<button class="btn sm solid" onclick="reqPagar('${r.id}')">Pagar directamente</button>`);
+  }
+  if(r.paga && r.comprovativoId){ b.push(`<button class="btn sm ghost" onclick="anexoVer('${r.comprovativoId}')">📎 Comprovativo</button>`); }
   if(r.estado==='Autorizada'){ b.push(`<button class="btn sm" onclick="reqImprimir('${r.id}')">🖶 Imprimir</button>`); }
   return b.join(' ');
 }
@@ -1778,7 +1786,7 @@ function reqVer(id){
   gmodal('Requisição '+r.numero, [], 'Fechar', ()=>true,
     `<div><b>${esc(r.fornecedor)}</b> · NUIT ${esc(r.fornecedorNuit||'—')} · ${esc(r.fornecedorEndereco||'')}</div><div style="margin:8px 0;">${lin}</div>
      <div>Imposto: MZN ${num2(r.imposto)} · <b>Total: MZN ${num2(r.total)}</b></div><div>Propósito: ${esc(r.proposito||'')}</div><div>Classificação: ${esc(r.classificacao||'')} · Fonte: ${esc(r.fontePagamento||'')}${r.chequeNo?' nº '+esc(r.chequeNo):''} · ${r.natureza==='corrente'?'Corrente e pontual':'Não corrente'}</div><hr>
-     ${ev('Elaborado por', r.elaboradoPor, r.elaboradoEm)}${ev('Verificado por', r.verificadoPor, r.verificadoEm, r.conformidade)}${ev('Autorizado por', r.autorizadoPor, r.autorizadoEm, r.autorizadoNivel==='director'?'Director':'Tesoureira')}${r.vistoDirector?ev('Visto do Director', r.vistoDirector.por, r.vistoDirector.em, r.vistoDirector.nota):''}${r.motivo?`<div style="color:#b00;">Motivo: ${esc(r.motivo)}</div>`:''}`);
+     ${ev('Elaborado por', r.elaboradoPor, r.elaboradoEm)}${ev('Verificado por', r.verificadoPor, r.verificadoEm, r.conformidade)}${ev('Autorizado por', r.autorizadoPor, r.autorizadoEm, r.autorizadoNivel==='director'?'Director':'Tesoureira')}${r.vistoDirector?ev('Visto do Director', r.vistoDirector.por, r.vistoDirector.em, r.vistoDirector.nota):''}${r.financiadaTransfNumero?`<div>Financiada por: <b>${esc(r.financiadaTransfNumero)}</b></div>`:''}${r.paga?`<div>Paga por: <b>${esc(r.pagaPor)}</b> <span class="cell-sub">${fmtDate(r.pagaEm)} · ${esc(r.pagaMetodo||'')}${r.pagaRef?' · '+esc(r.pagaRef):''} · ${r.pagaPerfil==='financeira2'?'do fundo da Financeira':'pagamento directo'}</span></div>`:''}${r.motivo?`<div style="color:#b00;">Motivo: ${esc(r.motivo)}</div>`:''}`);
 }
 /* ---- formulário de emissão ---- */
 let reqLinhaSeq = 0;
@@ -1891,18 +1899,115 @@ function reqVisto(id){
     audit('requisicao_visto','Requisição',r.numero,v.n.trim().slice(0,120)); toast('✅ Visto registado.');
   }, 'A tesoureira já autorizou esta despesa corrente e pontual. O seu visto fica registado; pode pedir acompanhamento na nota.');
 }
-function reqPagar(id){
-  const r = reqGet(id); if(!r || r.estado!=='Autorizada' || r.paga || !(ehTesoureiro()||ehFin2())) return;
-  gmodal('Registar pagamento — '+r.numero, [{id:'data', label:'Data do pagamento', type:'date', val:todayStr()}, {id:'ref', label:'Referência / nº do cheque / comprovativo', val:r.chequeNo||''}], 'Registar pagamento', async v=>{
-    try{ await Store.claim('requisicoes', id, 'estado', 'Autorizada', 'Autorizada'); }catch(e){ toast('⚠️ Estado alterado.'); return false; }
-    if(reqGet(id).paga){ toast('⚠️ Já foi paga.'); return false; }
-    const base = r.subtotal!==undefined ? r.subtotal : r2(r.total-(r.imposto||0)), iva = r.imposto||0, taxa = base>0 ? r2(iva/base*100) : 0;
-    const dId = await Store.addDoc('despesas', {numero:await docSeq('DS'), data:v.data||todayStr(), categoria:r.classificacao, descricao:r.proposito, desc:r.proposito, fornecedor:r.fornecedor, fornecedorNuit:r.fornecedorNuit||'', docFornecedor:r.taxaFactura||'', base, ivaTaxa:taxa, ivaValor:iva, total:r.total, valor:r.total,
-      estado:'Paga', metodo:REQ_METODO[r.fontePagamento]||'Numerário', refPagamento:v.ref.trim(), pagaEm:v.data||todayStr(), requisicaoId:id, requisicaoNumero:r.numero, registadoPor:currentUser.nome, criadoEm:new Date().toISOString()});
-    await Store.setDoc('requisicoes', id, {paga:true, pagaEm:v.data||todayStr(), pagaPor:currentUser.nome, despesaId:dId||''});
-    audit('requisicao_paga','Requisição',r.numero,`${r.total} MZN · ${r.fontePagamento}`); toast('✅ Pagamento registado nas despesas.');
-  });
+/* ================= FUNDOS PARA PAGAMENTOS, COMPROVATIVOS E PAGAMENTO DE REQUISIÇÕES ================= */
+let transferencias = [];
+const REQ_METODOS = ['Transferência bancária','M-Pesa','e-Mola','Numerário','Cheque'];
+const ANEXO_MAX = 700*1024;
+function lerDataUrl(file){ return new Promise((ok,ko)=>{ const fr = new FileReader(); fr.onload = ()=>ok(fr.result); fr.onerror = ()=>ko(new Error('Não foi possível ler o ficheiro.')); fr.readAsDataURL(file); }); }
+async function anexoPreparar(file){
+  if(!file) throw new Error('Anexe o comprovativo (foto ou PDF).');
+  const t = file.type || '';
+  if(t==='application/pdf'){ if(file.size>ANEXO_MAX) throw new Error('PDF demasiado grande (máximo 700 KB). Envie uma foto ou um PDF mais leve.'); return {dados:await lerDataUrl(file), mime:t, nome:file.name}; }
+  if(!/^image\//.test(t)) throw new Error('Formato não aceite: use uma foto (JPG/PNG) ou PDF.');
+  const bruto = await lerDataUrl(file);
+  try{
+    const cv = document.createElement('canvas'), ctx = cv.getContext && cv.getContext('2d');
+    if(!ctx) throw new Error('sem canvas');
+    const img = await new Promise((ok,ko)=>{ const i = new Image(); i.onload = ()=>ok(i); i.onerror = ()=>ko(new Error('img')); i.src = bruto; });
+    const k = Math.min(1, 1400/Math.max(img.width, img.height)); cv.width = Math.round(img.width*k); cv.height = Math.round(img.height*k);
+    ctx.fillStyle = '#fff'; ctx.fillRect(0,0,cv.width,cv.height); ctx.drawImage(img,0,0,cv.width,cv.height);
+    const out = cv.toDataURL('image/jpeg', 0.72);
+    if(out.length*0.75>ANEXO_MAX) throw new Error('A imagem continua demasiado grande.');
+    return {dados:out, mime:'image/jpeg', nome:file.name.replace(/\.\w+$/,'')+'.jpg'};
+  }catch(e){
+    if(file.size>ANEXO_MAX) throw new Error('Imagem demasiado grande para guardar (máximo 700 KB).');
+    return {dados:bruto, mime:t, nome:file.name};
+  }
 }
+async function anexoGuardar(file, meta){
+  const a = await anexoPreparar(file);
+  return await Store.addDoc('anexos', {...a, ...meta, por:currentUser.nome, em:new Date().toISOString()});
+}
+async function anexoVer(id){
+  if(!id || !podeReq()) return;
+  const a = await Store.getDocById('anexos', id);
+  if(!a){ toast('⚠️ Comprovativo não encontrado.'); return; }
+  let corpo;
+  if(a.mime==='application/pdf'){
+    let url = '#'; try{ const b = await (await fetch(a.dados)).blob(); url = URL.createObjectURL(b); }catch(e){}
+    corpo = `<div>📎 ${esc(a.nome)} · <a href="${url}" target="_blank" rel="noopener">Abrir PDF</a></div>`;
+  } else corpo = `<img src="${a.dados}" alt="comprovativo" style="max-width:100%;max-height:70vh;">`;
+  gmodal('Comprovativo', [], 'Fechar', ()=>true, `${corpo}<div class="cell-sub" style="margin-top:6px;">Anexado por ${esc(a.por||'')} em ${a.em?new Date(a.em).toLocaleString('pt-PT'):''}</div>`);
+}
+/* ---- saldo de cada Financeiro nível 2 ---- */
+const fin2Lista = ()=> users.filter(u=>u.role==='financeiro' && nivelDe(u)==='2' && u.ativo!==false);
+function fundoRecebido(uid){ return r2(transferencias.filter(t=>t.destinatarioId===uid).reduce((s,t)=>s+(Number(t.valor)||0),0)); }
+function fundoPago(uid){ return r2(requisicoes.filter(r=>r.paga && r.pagaPerfil==='financeira2' && r.pagaPorId===uid).reduce((s,r)=>s+(Number(r.total)||0),0)); }
+function fundoSaldo(uid){ return r2(fundoRecebido(uid)-fundoPago(uid)); }
+/* ---- tesoureira envia fundos à Financeira 2 ---- */
+function fundosEnviar(){
+  if(!ehTesoureiro()) return;
+  const dest = fin2Lista();
+  if(!dest.length){ toast('⚠️ Não há nenhum utilizador Financeiro nível 2 activo.'); return; }
+  const cand = requisicoes.filter(r=>r.estado==='Autorizada' && !r.paga && !r.financiadaTransfId);
+  if(!cand.length){ toast('⚠️ Não há requisições autorizadas por financiar.'); return; }
+  const lista = `<div style="max-height:200px;overflow:auto;text-align:left;">${cand.map(r=>`<label style="display:flex;gap:8px;margin:4px 0;"><input type="checkbox" class="fd-req" value="${r.id}" data-v="${r.total}" onchange="fundosSoma()"><span><b>${esc(r.numero)}</b> · ${esc(r.fornecedor)} · MZN ${num2(r.total)}</span></label>`).join('')}</div><div style="margin-top:6px;"><b id="fd-soma">Total a enviar: MZN 0,00</b></div>`;
+  gmodal('Enviar fundos à Financeira (nível 2)', [
+    {id:'dest', label:'Para', type:'select', opts:dest.map(u=>[u.id,u.nome])},
+    {id:'data', label:'Data do envio', type:'date', val:todayStr()},
+    {id:'metodo', label:'Método', type:'select', opts:REQ_METODOS},
+    {id:'ref', label:'Referência do envio'},
+    {id:'file', label:'Comprovativo do envio (foto ou PDF) *', type:'file'}], 'Enviar fundos', async v=>{
+      const sel = [...document.querySelectorAll('.fd-req:checked')].map(c=>requisicoes.find(r=>r.id===c.value)).filter(Boolean);
+      if(!sel.length){ toast('⚠️ Seleccione as requisições a financiar.'); return false; }
+      if(sel.some(r=>r.estado!=='Autorizada' || r.paga || r.financiadaTransfId)){ toast('⚠️ Uma das requisições já foi paga ou financiada.'); return false; }
+      const valor = r2(sel.reduce((s,r)=>s+r.total,0)), du = users.find(u=>u.id===v.dest);
+      let anexoId; try{ anexoId = await anexoGuardar(v.file, {refTipo:'transferencia'}); }catch(e){ toast('⚠️ '+e.message); return false; }
+      const numero = await docSeq('TF');
+      const tid = await Store.addDoc('transferencias', {numero, data:v.data||todayStr(), metodo:v.metodo, referencia:v.ref.trim(), destinatarioId:v.dest, destinatarioNome:du?du.nome:'', valor,
+        itens:sel.map(r=>({id:r.id, numero:r.numero, fornecedor:r.fornecedor, valor:r.total})), comprovativoId:anexoId, enviadoPor:currentUser.nome, enviadoPorId:currentUser.id, enviadoEm:new Date().toISOString()});
+      for(const r of sel) await Store.setDoc('requisicoes', r.id, {financiadaTransfId:tid, financiadaTransfNumero:numero, financiadaPara:v.dest});
+      await Store.setDoc('anexos', anexoId, {refId:tid});
+      audit('fundos_enviados', 'Transferência de fundos', numero, `${fmtMZN(valor)} para ${du?du.nome:''} · ${sel.map(r=>r.numero).join(', ')}`.slice(0,200));
+      toast(`✅ Fundos enviados (${numero}). O valor já está disponível para a Financeira.`, 6000);
+    }, lista);
+}
+function fundosSoma(){ const t = [...document.querySelectorAll('.fd-req:checked')].reduce((s,c)=>s+Number(c.dataset.v),0); const e = document.getElementById('fd-soma'); if(e) e.textContent = 'Total a enviar: MZN '+num2(t); }
+function viewReqFundos(){
+  const meu = ehFin2() ? currentUser.id : null, lista = [...transferencias].filter(t=>!meu || t.destinatarioId===meu).sort((a,b)=>(b.numero||'').localeCompare(a.numero||''));
+  const saldos = (meu ? [currentUser] : fin2Lista()).map(u=>`<div class="kpi"><div class="lbl">${esc(u.nome)} — saldo para pagamentos</div><div class="val">MZN ${num2(fundoSaldo(u.id))}</div><div class="sub">recebido ${num2(fundoRecebido(u.id))} · pago ${num2(fundoPago(u.id))}</div></div>`).join('');
+  return `<div class="kpi-row">${saldos || '<div class="muted-note">Sem Financeiro nível 2 activo.</div>'}</div>
+  <div class="card"><div class="row-flex" style="justify-content:space-between;flex-wrap:wrap;"><h3 style="margin:0;">Envios de fundos para pagamentos</h3><button class="btn sm ghost" onclick="finTab='despPagas';go('financeiro')">📊 Relatório de despesas pagas</button>${ehTesoureiro()?`<button class="btn solid" onclick="fundosEnviar()">+ Enviar fundos</button>`:''}</div>
+    <div class="csub">A tesoureira envia o valor discriminando as requisições a pagar e anexa o comprovativo. O valor fica disponível para a Financeira pagar; ao pagar cada requisição ela anexa o comprovativo do pagamento.</div>
+    <div class="table-wrap"><table><thead><tr><th>Nº</th><th>Data</th><th>Para</th><th>Método / ref.</th><th>Requisições</th><th>Valor</th><th></th></tr></thead><tbody>
+    ${lista.map(t=>`<tr><td>${esc(t.numero)}</td><td class="cell-sub">${fmtDate(t.data)}</td><td class="cell-name">${esc(t.destinatarioNome)}<div class="cell-sub">por ${esc(t.enviadoPor||'')}</div></td><td class="cell-sub">${esc(t.metodo)}${t.referencia?' · '+esc(t.referencia):''}</td>
+      <td class="cell-sub">${(t.itens||[]).map(i=>`${esc(i.numero)} (${num2(i.valor)})`).join('<br>')}</td><td><b>MZN ${num2(t.valor)}</b></td><td><button class="btn sm ghost" onclick="anexoVer('${t.comprovativoId}')">📎 Comprovativo</button></td></tr>`).join('') || `<tr><td colspan="7"><div class="empty">Ainda não há envios de fundos.</div></td></tr>`}</tbody></table></div></div>`;
+}
+/* ---- pagamento da requisição (tesoureira/director directamente; Financeira 2 a partir do seu saldo) — comprovativo obrigatório ---- */
+function reqPagar(id){
+  const r = reqGet(id); if(!r || r.estado!=='Autorizada' || r.paga || !(ehTesoureiro()||ehDirector()||ehFin2())) return;
+  const perfil = ehFin2() ? 'financeira2' : (ehTesoureiro() ? 'tesoureira' : 'director');
+  if(perfil==='financeira2'){
+    if(fundoSaldo(currentUser.id) < r.total){ toast(`⚠️ Saldo insuficiente (MZN ${num2(fundoSaldo(currentUser.id))}). Peça fundos à tesoureira.`, 6000); return; }
+  } else if(r.financiadaTransfId){ toast(`⚠️ Esta requisição já foi financiada à Financeira (${r.financiadaTransfNumero}); é ela quem a paga.`, 6000); return; }
+  gmodal('Pagar '+r.numero+' — MZN '+num2(r.total), [
+    {id:'data', label:'Data do pagamento', type:'date', val:todayStr()},
+    {id:'metodo', label:'Método de pagamento', type:'select', opts:REQ_METODOS, val:REQ_METODO[r.fontePagamento]||'Numerário'},
+    {id:'ref', label:'Referência / nº do cheque / nº da transacção', val:r.chequeNo||''},
+    {id:'file', label:'Comprovativo do pagamento (foto ou PDF) *', type:'file'}], 'Registar pagamento', async v=>{
+      const cur = reqGet(id); if(!cur || cur.paga || cur.estado!=='Autorizada'){ toast('⚠️ Esta requisição já foi paga.'); return false; }
+      if(perfil==='financeira2' && fundoSaldo(currentUser.id) < cur.total){ toast('⚠️ Saldo insuficiente.'); return false; }
+      let anexoId; try{ anexoId = await anexoGuardar(v.file, {refTipo:'requisicao', refId:id}); }catch(e){ toast('⚠️ '+e.message); return false; }
+      const base = cur.subtotal!==undefined ? cur.subtotal : r2(cur.total-(cur.imposto||0)), iva = cur.imposto||0, taxa = base>0 ? r2(iva/base*100) : 0;
+      try{ await Store.createOnce('despesas', 'dq_'+id, {numero:await docSeq('DS'), data:v.data||todayStr(), categoria:cur.classificacao, descricao:cur.proposito, desc:cur.proposito, fornecedor:cur.fornecedor, fornecedorNuit:cur.fornecedorNuit||'', docFornecedor:cur.taxaFactura||'', base, ivaTaxa:taxa, ivaValor:iva, total:cur.total, valor:cur.total,
+        estado:'Paga', metodo:v.metodo, refPagamento:v.ref.trim(), pagaEm:v.data||todayStr(), requisicaoId:id, requisicaoNumero:cur.numero, comprovativoId:anexoId, registadoPor:currentUser.nome, criadoEm:new Date().toISOString()}); }
+      catch(e){ toast('⚠️ Esta requisição já foi paga.'); return false; }
+      await Store.setDoc('requisicoes', id, {paga:true, pagaEm:v.data||todayStr(), pagaPor:currentUser.nome, pagaPorId:currentUser.id, pagaPerfil:perfil, pagaMetodo:v.metodo, pagaRef:v.ref.trim(), comprovativoId:anexoId, despesaId:'dq_'+id});
+      audit('requisicao_paga','Requisição',cur.numero,`${cur.total} MZN · ${v.metodo} · ${perfil==='financeira2'?'do fundo da Financeira':'pagamento directo'}`);
+      toast('✅ Pagamento registado nas despesas, com comprovativo.');
+    });
+}
+
 function reqImprimir(id){
   const r = reqGet(id); if(!r || r.estado!=='Autorizada' || !podeReq()) return;
   const c = configDoc||{}, d = x=>x?fmtDate(x):'', bx = 'border:1px solid #000;padding:3px 6px;', ln = r.itens||[], vazias = Math.max(0, 8-ln.length);
@@ -1923,6 +2028,7 @@ function reqImprimir(id){
     <div style="margin-top:10px;">FONTE DE PAGAMENTO: ${REQ_FONTES.map(sel).join('')}</div>
     <table style="width:100%;border-collapse:collapse;margin-top:14px;"><tr>${assin('REQUISITADO POR', r.requisitadoPor, '', '')}${assin('ELABORADO POR', r.elaboradoPor, r.elaboradoEm, '')}${assin('VERIFICADO POR', r.verificadoPor, r.verificadoEm, 'A Tesoureira')}${assin('APROVADO POR', r.autorizadoPor, r.autorizadoEm, r.autorizadoNivel==='director'?'O Director':'A Tesoureira')}</tr></table>
     ${r.vistoDirector?`<div style="margin-top:12px;font-size:11px;"><b>Visto do Director:</b> ${esc(r.vistoDirector.por)} · ${d(r.vistoDirector.em)}${r.vistoDirector.nota?' — '+esc(r.vistoDirector.nota):''}</div>`:''}
+    ${r.paga?`<div style="margin-top:6px;font-size:11px;"><b>Pago por:</b> ${esc(r.pagaPor)} · ${d(r.pagaEm)} · ${esc(r.pagaMetodo||'')}${r.pagaRef?' · '+esc(r.pagaRef):''}</div>`:''}
     <div style="margin-top:10px;font-size:10px;">Impresso por ${esc(currentUser.nome)} em ${fmtDate(todayStr())}</div></div>`);
 }
 
@@ -2165,6 +2271,7 @@ function bootApp(){
   Store.listen('vendas', arr=>{ vendas = arr; if(currentUser) render(); });
   Store.listen('despesas', arr=>{ despesas = arr; if(currentUser) render(); });
   Store.listen('funcionarios', arr=>{ funcionarios = arr; if(currentUser) render(); });
+  Store.listen('transferencias', arr=>{ transferencias = arr; if(currentUser && currentView==='requisicoes') render(); });
   Store.listen('requisicoes', arr=>{ requisicoes = arr; if(currentUser){ if(currentView==='requisicoes') render(); reqAvisar(); } });
   const lRh = (col, set)=>Store.listen(col, arr=>{ set(arr); if(currentUser && ['rh','financeiro'].includes(currentView)) render(); });
   lRh('salarios', a=>{ salarios = a; }); lRh('assiduidade', a=>{ assiduidade = a; }); lRh('adiantamentos', a=>{ adiantamentos = a; }); lRh('feriasPlano', a=>{ feriasPlano = a; });
@@ -4634,12 +4741,12 @@ function periodoDatas(per){
 }
 const diaDe = i => diaLocal(i.pagoEm||i.emitidaEm||i.data||'');
 function viewFinanceiro(){
-  const tabs = [['resumo','Resumo'],['receber','A receber (entidades)'],['internamentos','Contas de internamento'],['despesas','Despesas e contas a pagar'],['inss','INSS'],['fundo','Fundo de maneio'],['balancete','Balancete'],['reconc','Reconciliação bancária'],['iva','Apuramento do IVA'],['relatorios','Relatórios'],['parametros','Parâmetros fiscais']];
+  const tabs = [['resumo','Resumo'],['receber','A receber (entidades)'],['internamentos','Contas de internamento'],['despesas','Despesas e contas a pagar'],['despPagas','Despesas pagas (relatório)'],['inss','INSS'],['fundo','Fundo de maneio'],['balancete','Balancete'],['reconc','Reconciliação bancária'],['iva','Apuramento do IVA'],['relatorios','Relatórios'],['parametros','Parâmetros fiscais']];
   return `
   <div class="page-head"><div><h1>Financeiro</h1><div class="desc">Contabilidade: receitas, contas a receber de empresas e seguradoras, despesas, INSS e relatórios</div></div></div>
   ${presencaTopo()}
   <div class="tabs">${tabs.map(([id,l])=>`<div class="tab ${finTab===id?'active':''}" onclick="finSetTab('${id}')">${l}</div>`).join('')}</div>
-  ${({resumo:finResumo, receber:finReceber, internamentos:finInternamentos, despesas:finDespesas, inss:finInss, fundo:finFundo, balancete:finBalancete, reconc:finReconc, iva:finIva, relatorios:finRelatorios, parametros:finParametros})[finTab]()}`;
+  ${({resumo:finResumo, receber:finReceber, internamentos:finInternamentos, despesas:finDespesas, despPagas:finDespPagas, inss:finInss, fundo:finFundo, balancete:finBalancete, reconc:finReconc, iva:finIva, relatorios:finRelatorios, parametros:finParametros})[finTab]()}`;
 }
 function finResumo(){
   const soma = tipo => invoices.filter(i=>i.tipo===tipo).reduce((t,i)=>t+recebido(i),0);
@@ -4936,6 +5043,54 @@ function imprimirRelatorioFin(){
   const r = relatorioFin(finPer);
   printDoc(`<div class="doc">${docHeader('Relatório financeiro', r.pd.de+'…'+r.pd.ate)}<div style="font-size:12px;margin-bottom:12px;">Período: <b>${r.pd.nome}</b> (${fmtDate(r.pd.de)} a ${fmtDate(r.pd.ate)}) · Emitido em ${fmtDate(todayStr())} por ${esc(currentUser.nome)}</div>${relatorioHtml(r)}${docFooter(currentUser.nome)}</div>`);
 }
+/* ---- Relatório de despesas pagas ---- */
+let relDP = {per:{tipo:'mes',de:'',ate:''}, cat:'', metodo:'', quem:'', forn:''};
+function relDPDados(){
+  const pd = periodoDatas(relDP.per), dentro = d => d>=pd.de && d<=pd.ate;
+  const linhas = despesas.filter(d=>despPaga(d) && dentro(d.pagaEm||d.data||'')).map(d=>{
+    const rq = d.requisicaoId ? requisicoes.find(r=>r.id===d.requisicaoId) : null;
+    const perfil = rq ? ({financeira2:'Financeira (fundo)', tesoureira:'Tesoureira (directo)', director:'Director (directo)'})[rq.pagaPerfil]||'' : '';
+    return {id:d.id, data:d.pagaEm||d.data||'', numero:d.numero||'', req:d.requisicaoNumero||'', fornecedor:d.fornecedor||'', descricao:d.descricao||d.desc||'', categoria:d.categoria||'—', metodo:d.metodo||'—', ref:d.refPagamento||'',
+      quem:(rq&&rq.pagaPor)||d.registadoPor||'—', perfil, total:despTotal(d), comp:d.comprovativoId||''};
+  }).filter(l=>(!relDP.cat||l.categoria===relDP.cat)&&(!relDP.metodo||l.metodo===relDP.metodo)&&(!relDP.quem||l.quem===relDP.quem)&&(!relDP.forn||l.fornecedor.toLowerCase().includes(relDP.forn.toLowerCase()))).sort((a,b)=>a.data.localeCompare(b.data));
+  const soma = k => { const o={}; linhas.forEach(l=>{ o[l[k]||'—']=r2((o[l[k]||'—']||0)+l.total); }); return Object.entries(o).sort((a,b)=>b[1]-a[1]); };
+  return {pd, linhas, total:r2(linhas.reduce((s,l)=>s+l.total,0)), porCat:soma('categoria'), porMet:soma('metodo'), porQuem:soma('quem')};
+}
+function relDPResumoHtml(r){
+  const bloco = (t, arr) => `<div style="flex:1;min-width:200px;"><div class="cell-sub" style="font-weight:700;margin-bottom:4px;">${t}</div>${arr.map(([k,v])=>`<div style="display:flex;justify-content:space-between;gap:10px;font-size:12.5px;"><span>${esc(k)}</span><b>${num2(v)}</b></div>`).join('')||'—'}</div>`;
+  return `<div style="display:flex;gap:18px;flex-wrap:wrap;margin:10px 0;">${bloco('Por categoria', r.porCat)}${bloco('Por método de pagamento', r.porMet)}${bloco('Por quem pagou', r.porQuem)}</div>`;
+}
+function relDPTabela(r, comBotoes){
+  return `<div class="table-wrap"><table class="${comBotoes?'':'doc-table'}"><thead><tr><th>Data</th><th>Nº</th><th>Req.</th><th>Fornecedor / descrição</th><th>Categoria</th><th>Método / ref.</th><th>Pago por</th><th style="text-align:right;">Valor (MZN)</th>${comBotoes?'<th></th>':''}</tr></thead><tbody>
+  ${r.linhas.map(l=>`<tr><td>${fmtDate(l.data)}</td><td>${esc(l.numero)}</td><td>${esc(l.req)}</td><td>${esc(l.fornecedor)}<div class="cell-sub">${esc(l.descricao)}</div></td><td>${esc(l.categoria)}</td><td>${esc(l.metodo)}${l.ref?'<div class="cell-sub">'+esc(l.ref)+'</div>':''}</td><td>${esc(l.quem)}${l.perfil?'<div class="cell-sub">'+esc(l.perfil)+'</div>':''}</td><td style="text-align:right;"><b>${num2(l.total)}</b></td>${comBotoes?`<td>${l.comp?`<button class="btn sm ghost" onclick="anexoVer('${l.comp}')">📎</button>`:''}</td>`:''}</tr>`).join('') || `<tr><td colspan="${comBotoes?9:8}"><div class="empty">Sem despesas pagas neste período.</div></td></tr>`}
+  </tbody><tfoot><tr><td colspan="7" style="text-align:right;"><b>Total pago</b></td><td style="text-align:right;"><b>${num2(r.total)}</b></td>${comBotoes?'<td></td>':''}</tr></tfoot></table></div>`;
+}
+function finDespPagas(){
+  const r = relDPDados(), tipos = [['dia','Hoje'],['semana','Últimos 7 dias'],['mes','Este mês'],['semestre','Últimos 6 meses'],['ano','Este ano'],['custom','Intervalo personalizado']];
+  const todas = despesas.filter(despPaga), cats = [...new Set(todas.map(d=>d.categoria).filter(Boolean))].sort(), mets = [...new Set(todas.map(d=>d.metodo).filter(Boolean))].sort();
+  const quem = [...new Set(todas.map(d=>{ const rq = d.requisicaoId?requisicoes.find(x=>x.id===d.requisicaoId):null; return (rq&&rq.pagaPor)||d.registadoPor; }).filter(Boolean))].sort();
+  const sel = (k, arr, vazio) => `<select onchange="relDP.${k}=this.value;render()"><option value="">${vazio}</option>${arr.map(c=>`<option ${relDP[k]===c?'selected':''}>${esc(c)}</option>`).join('')}</select>`;
+  return `<div class="card"><h3>Relatório de despesas pagas</h3><div class="csub">Período: <b>${r.pd.nome}</b> (${fmtDate(r.pd.de)} a ${fmtDate(r.pd.ate)}) · ${r.linhas.length} pagamento(s) · <b>MZN ${num2(r.total)}</b></div>
+    <div class="toolbar"><select onchange="relDP.per.tipo=this.value;render()">${tipos.map(([v,l])=>`<option value="${v}" ${relDP.per.tipo===v?'selected':''}>${l}</option>`).join('')}</select>
+      ${relDP.per.tipo==='custom'?`<input type="date" value="${relDP.per.de}" onchange="relDP.per.de=this.value;render()"><input type="date" value="${relDP.per.ate}" onchange="relDP.per.ate=this.value;render()">`:''}
+      ${sel('cat',cats,'Todas as categorias')}${sel('metodo',mets,'Todos os métodos')}${sel('quem',quem,'Todos (quem pagou)')}
+      <input placeholder="Fornecedor…" value="${esc(relDP.forn)}" onchange="relDP.forn=this.value;render()" style="padding:7px 10px;border-radius:8px;border:1.5px solid var(--border);">
+      <button class="btn" onclick="imprimirDespPagas()">🖶 Imprimir</button><button class="btn" onclick="exportarDespPagas()">⬇ Excel (CSV)</button></div>
+    ${relDPResumoHtml(r)}${relDPTabela(r, true)}</div>`;
+}
+function imprimirDespPagas(){
+  const r = relDPDados();
+  printDoc(`<div class="doc" style="font-size:11.5px;">${docHeader('Relatório de despesas pagas', r.pd.de+'…'+r.pd.ate)}<div style="margin-bottom:8px;">Período: <b>${r.pd.nome}</b> (${fmtDate(r.pd.de)} a ${fmtDate(r.pd.ate)}) · Emitido em ${fmtDate(todayStr())} por ${esc(currentUser.nome)}</div>${relDPResumoHtml(r)}${relDPTabela(r,false)}${docFooter(currentUser.nome)}</div>`);
+}
+function exportarDespPagas(){
+  const r = relDPDados(), q = v => '"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+  const linhas = [['Data','Nº despesa','Requisição','Fornecedor','Descrição','Categoria','Método','Referência','Pago por','Perfil','Valor MZN'].map(q).join(';')]
+    .concat(r.linhas.map(l=>[l.data,l.numero,l.req,l.fornecedor,l.descricao,l.categoria,l.metodo,l.ref,l.quem,l.perfil,String(l.total).replace('.',',')].map(q).join(';')));
+  linhas.push(['','','','','','','','','','Total',String(r.total).replace('.',',')].map(q).join(';'));
+  baixarFicheiro(`despesas-pagas-${r.pd.de}_${r.pd.ate}.csv`, '﻿'+linhas.join('\r\n'), 'text/csv;charset=utf-8');
+  audit('exportar','Relatório','Despesas pagas',`${r.linhas.length} linhas`);
+}
+
 /* ---- Parâmetros fiscais ---- */
 function finParametros(){
   const admFin = ['admin','financeiro'].includes(currentUser.role), ro = admFin?'':'readonly';
@@ -5014,6 +5169,7 @@ function gcampo(c){
   const id = 'g-'+c.id, val = c.val===undefined||c.val===null ? '' : c.val;
   if(c.type==='select') return `<div class="field"><label>${c.label}</label><select id="${id}" ${c.onchange?`onchange="${c.onchange}"`:''}>${c.opts.map(o=>{ const [v,t] = Array.isArray(o)?o:[o,o]; return `<option value="${esc(String(v))}" ${String(v)===String(val)?'selected':''}>${esc(String(t))}</option>`; }).join('')}</select></div>`;
   if(c.type==='textarea') return `<div class="field"><label>${c.label}</label><textarea id="${id}" rows="${c.rows||3}">${esc(String(val))}</textarea></div>`;
+  if(c.type==='file') return `<div class="field"><label>${c.label}</label><input id="${id}" type="file" accept="image/*,application/pdf"></div>`;
   return `<div class="field"><label>${c.label}</label><input id="${id}" type="${c.type||'text'}" ${c.step?`step="${c.step}"`:''} value="${esc(String(val))}"></div>`;
 }
 function gmodal(titulo, campos, okTxt, onOk, info){
@@ -5021,7 +5177,7 @@ function gmodal(titulo, campos, okTxt, onOk, info){
   if(!m){ m = document.createElement('div'); m.className = 'modal-bg'; m.id = 'modal-g'; document.body.appendChild(m); }
   m.innerHTML = `<div class="modal"><div class="modal-head"><h3>${esc(titulo)}</h3><button class="modal-close" onclick="closeModal('modal-g')">✕</button></div><div class="modal-body">${info?`<div class="muted-note" style="margin-bottom:12px;">${info}</div>`:''}${campos.map(gcampo).join('')}</div><div class="modal-foot"><button class="btn" onclick="closeModal('modal-g')">Cancelar</button><button class="btn solid" id="g-ok">${esc(okTxt)}</button></div></div>`;
   el('g-ok').onclick = async ()=>{
-    const v = {}; campos.forEach(c=>{ v[c.id] = el('g-'+c.id).value; });
+    const v = {}; campos.forEach(c=>{ v[c.id] = c.type==='file' ? ((el('g-'+c.id).files||[])[0]||null) : el('g-'+c.id).value; });
     el('g-ok').disabled = true;
     let r; try{ r = await onOk(v); }catch(e){ toast('⚠️ Erro: '+e.message); r = false; }
     el('g-ok').disabled = false;
@@ -5152,7 +5308,7 @@ function folhaPagar(tipo){
   const valor = tipo==='sal' ? c.totLiquido : c.totIrps;
   gmodal(tipo==='sal' ? 'Pagamento dos salários' : 'Entrega do IRPS à AT', [
     {id:'data', label:'Data do pagamento', type:'date', val:todayStr()},
-    {id:'metodo', label:'Método', type:'select', opts:['Transferência bancária','Numerário','Carteira Móvel','Cheque']},
+    {id:'metodo', label:'Método', type:'select', opts:['Transferência bancária','M-Pesa','e-Mola','Numerário','Cheque']},
     {id:'valor', label:'Valor (MZN)', type:'number', step:'0.01', val:valor},
     {id:'ref', label:'Referência / comprovativo'}], 'Registar', async v=>{
       const val = r2(v.valor); if(!(val>0)){ toast('⚠️ Indique o valor.'); return false; }
@@ -5267,7 +5423,7 @@ function adNovo(){
 function adProcessar(id){
   const a = adiantamentos.find(x=>x.id===id); if(!a || a.estado!=='Pedido' || !podeRHOper()) return;
   gmodal('Processar adiantamento', [
-    {id:'metodo', label:'Pago por', type:'select', opts:['Numerário','Carteira Móvel','Transferência bancária']},
+    {id:'metodo', label:'Pago por', type:'select', opts:['Numerário','M-Pesa','e-Mola','Transferência bancária']},
     {id:'data', label:'Data do pagamento', type:'date', val:todayStr()},
     {id:'mes', label:'Descontar a partir de (mês)', type:'month', val:todayStr().slice(0,7)},
     {id:'parc', label:'Nº de prestações (1 a 12)', type:'number', val:1}], 'Pagar e processar', async v=>{
@@ -5501,7 +5657,7 @@ function fmImprimir(){
 }
 
 /* ================= BALANCETE (simplificado, por rubricas) ================= */
-const GRUPO_MET = {'Numerário':'Caixa (numerário)', 'Carteira Móvel':'Carteiras móveis', 'POS':'Bancos', 'Transferência bancária':'Bancos', 'Cheque':'Bancos'};
+const GRUPO_MET = {'Numerário':'Caixa (numerário)', 'Carteira Móvel':'Carteiras móveis', 'M-Pesa':'Carteiras móveis', 'e-Mola':'Carteiras móveis', 'POS':'Bancos', 'Transferência bancária':'Bancos', 'Cheque':'Bancos'};
 const GRUPOS_TES = ['Caixa (numerário)','Carteiras móveis','Bancos'];
 let balMes = todayStr().slice(0,7), balAcum = false;
 function ivaVendaTaxa(tipo){ const o = param('ivaVenda', {}) || {}; const n = Number(o[tipo]); return isNaN(n) ? 0 : n; }
@@ -5677,7 +5833,7 @@ async function ivaGuardar(){
 }
 function ivaPagar(){
   const c = ivaCalc(ivaMes); if(!ehFin() || !c.guardado || c.guardado.pagoEm || !(c.aPagar>0)) return;
-  gmodal('Pagamento do IVA', [{id:'data', label:'Data', type:'date', val:todayStr()}, {id:'metodo', label:'Método', type:'select', opts:['Transferência bancária','Numerário','Carteira Móvel','Cheque']}, {id:'valor', label:'Valor (MZN)', type:'number', step:'0.01', val:c.aPagar}, {id:'ref', label:'Referência / guia'}], 'Registar', async v=>{
+  gmodal('Pagamento do IVA', [{id:'data', label:'Data', type:'date', val:todayStr()}, {id:'metodo', label:'Método', type:'select', opts:['Transferência bancária','M-Pesa','e-Mola','Numerário','Cheque']}, {id:'valor', label:'Valor (MZN)', type:'number', step:'0.01', val:c.aPagar}, {id:'ref', label:'Referência / guia'}], 'Registar', async v=>{
     const val = r2(v.valor); if(!(val>0)){ toast('⚠️ Indique o valor.'); return false; }
     await Store.addDoc('despesas', {numero:await docSeq('DS'), data:v.data||todayStr(), categoria:'Impostos', descricao:`IVA — ${ivaMes}`, desc:`IVA — ${ivaMes}`, fornecedor:'Autoridade Tributária de Moçambique', fornecedorNuit:'', docFornecedor:v.ref.trim(), base:val, ivaTaxa:0, ivaValor:0, total:val, valor:val, estado:'Paga', metodo:v.metodo, refPagamento:v.ref.trim(), pagaEm:v.data||todayStr(), liquidacao:true, ivaMes, registadoPor:currentUser.nome, criadoEm:new Date().toISOString()});
     await Store.setDoc('apuramentosIva', ivaMes, {pagoEm:v.data||todayStr()});
@@ -6221,7 +6377,7 @@ async function resetSistema(){
   if(!confirm("ATENÇÃO: isto vai apagar PERMANENTEMENTE todos os dados do sistema — pacientes, consultas, facturas, receitas, stock, vendas, despesas, funcionários, especialidades e utilizadores. Esta ação não pode ser desfeita. Continuar?")) return;
   const confirmText = prompt('Para confirmar, escreva exactamente: APAGAR TUDO');
   if(confirmText !== 'APAGAR TUDO'){ toast("Reset cancelado — texto de confirmação não corresponde."); return; }
-  const collections = ['contadores','patients','appointments','queue','invoices','especialidades','prontuarios','receitas','medicamentos','vendas','despesas','funcionarios','alertas','emails','tratamentos','exames','tratamentosPrescritos','pedidosExame','empresas','seguradoras','camas','internamentos','cardex','administracoes','diarioEnfermagem','sinaisVitais','passagensTurno','referenciacoes','beneficiarios','recebimentos','contasInt','tratamentosInt','movimentosStock','planos','internadosAtivos','users','config','requisicoes','presenca','salarios','assiduidade','adiantamentos','feriasPlano','disciplinares','fundoManeio','reconciliacoes','apuramentosIva'];   // 'auditoria' é preservada
+  const collections = ['contadores','patients','appointments','queue','invoices','especialidades','prontuarios','receitas','medicamentos','vendas','despesas','funcionarios','alertas','emails','tratamentos','exames','tratamentosPrescritos','pedidosExame','empresas','seguradoras','camas','internamentos','cardex','administracoes','diarioEnfermagem','sinaisVitais','passagensTurno','referenciacoes','beneficiarios','recebimentos','contasInt','tratamentosInt','movimentosStock','planos','internadosAtivos','users','config','requisicoes','transferencias','anexos','presenca','salarios','assiduidade','adiantamentos','feriasPlano','disciplinares','fundoManeio','reconciliacoes','apuramentosIva'];   // 'auditoria' é preservada
   toast("⏳ A apagar todos os dados…", 60000);
   auditSuspended = true;
   try{
@@ -6912,7 +7068,7 @@ function aplicarFiltroAuditoria(){
 
 /* ================= CÓPIA DE SEGURANÇA ================= */
 const BACKUP_COLS = ['contadores','config','users','patients','appointments','queue','invoices','especialidades','prontuarios','receitas','medicamentos','vendas','despesas',
-  'funcionarios','alertas','emails','tratamentos','exames','tratamentosPrescritos','pedidosExame','empresas','seguradoras','camas','internamentos','cardex','administracoes','diarioEnfermagem','sinaisVitais','passagensTurno','referenciacoes','beneficiarios','recebimentos','contasInt','tratamentosInt','movimentosStock','planos','internadosAtivos','requisicoes','salarios','assiduidade','adiantamentos','feriasPlano','disciplinares','fundoManeio','reconciliacoes','apuramentosIva','auditoria'];
+  'funcionarios','alertas','emails','tratamentos','exames','tratamentosPrescritos','pedidosExame','empresas','seguradoras','camas','internamentos','cardex','administracoes','diarioEnfermagem','sinaisVitais','passagensTurno','referenciacoes','beneficiarios','recebimentos','contasInt','tratamentosInt','movimentosStock','planos','internadosAtivos','requisicoes','transferencias','anexos','salarios','assiduidade','adiantamentos','feriasPlano','disciplinares','fundoManeio','reconciliacoes','apuramentosIva','auditoria'];
 function baixarFicheiro(nome, texto, tipo){
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([texto], {type: tipo||'application/json'}));
