@@ -1970,7 +1970,7 @@ async function anexoVer(id){
   if(!id) return;
   const a = await Store.getDocById('anexos', id);
   if(!a){ toast('⚠️ Documento não encontrado.'); return; }
-  if(a.refTipo==='consentimento' ? !(currentUser && (currentUser.role==='admin' || canSeePatient(a.pacienteNid))) : !podeReq()) return;
+  if(a.refTipo==='consentimento' ? !(currentUser && (currentUser.role==='admin' || canSeePatient(a.pacienteNid))) : a.refTipo==='subsidio' ? !ehRecepcao() : !podeReq()) return;
   let corpo;
   if(a.mime==='application/pdf'){
     let url = '#'; try{ const b = await (await fetch(a.dados)).blob(); url = URL.createObjectURL(b); }catch(e){}
@@ -2279,8 +2279,10 @@ function espRender(){
   box.innerHTML = rec + `<div class="field" style="border:2px solid var(--primary,#1a6b5a);border-radius:10px;padding:8px 10px;"><label><b>Forma de pagamento</b></label><select id="cx-cond" onchange="espMudou()"><option value="normal">Pagar agora (numerário / carteira móvel / POS)</option>${Object.entries(ESP_TIPOS).map(([k,v])=>`<option value="${k}">${v} — requer autorização do Administrador e visto do Director</option>`).join('')}</select></div>
     <div id="cx-cond-campos" style="display:none;"><div class="field-row">
       <div class="field"><label>Motivo / justificação *</label><input id="cx-c-motivo" placeholder="Ex.: paciente carenciado, enviado por parceiro…"></div>
+      <div class="field" id="cx-c-fund-box"><label>Fundamento *</label><select id="cx-c-fund"><option>Incapacidade financeira</option><option>Urgência do atendimento</option></select></div>
       <div class="field" id="cx-c-parc-box"><label>Parceiro que enviou (se aplicável)</label><input id="cx-c-parceiro"></div>
-      <div class="field" id="cx-c-ent-box"><label>Entrada a pagar agora (MZN)</label><input id="cx-c-entrada" type="number" min="0" step="0.01" value="0"></div>
+      <div class="field" id="cx-c-file-box"><label>Comprovativo da incapacidade financeira ou da urgência * (foto/scan ou PDF)</label><input id="cx-c-file" type="file" accept="image/*,application/pdf"></div>
+      <div class="field" id="cx-c-ent-box"><label id="cx-c-ent-l">Entrada a pagar agora (MZN)</label><input id="cx-c-entrada" type="number" min="0" step="0.01" value="0"></div>
       <div class="field" id="cx-c-n-box"><label>Nº de parcelas</label><input id="cx-c-n" type="number" min="2" max="12" value="2"></div>
       <div class="field" id="cx-c-venc-box"><label id="cx-c-venc-l">Data da 1.ª parcela / limite</label><input id="cx-c-venc" type="date" value="${addMeses(todayStr(),1)}"></div></div></div>`;
 }
@@ -2288,7 +2290,8 @@ function espMudou(){
   const t = el('cx-cond').value, c = el('cx-c-motivo') && el('cx-cond-campos');
   el('cx-cond-campos').style.display = t==='normal' ? 'none' : '';
   el('cx-c-parc-box').style.display = t==='subsidiado' ? '' : 'none';
-  el('cx-c-ent-box').style.display = t==='subsidiado' ? 'none' : '';
+  el('cx-c-fund-box').style.display = el('cx-c-file-box').style.display = t==='subsidiado' ? '' : 'none';
+  el('cx-c-ent-l').textContent = t==='subsidiado' ? 'Valor que o paciente tem disponível e paga agora (MZN) — só este valor é facturado' : 'Entrada a pagar agora (MZN)';
   el('cx-c-n-box').style.display = t==='parcelado' ? '' : 'none';
   el('cx-c-venc-l').textContent = t==='parcelado' ? 'Data da 1.ª parcela' : 'Pagar até';
   cxRecalc();
@@ -2303,15 +2306,17 @@ function espContexto(vp){
 }
 function espLerPedido(tipo, vp){
   const motivo = el('cx-c-motivo').value.trim(); if(!motivo) return {erro:'Indique o motivo do pedido.'};
-  const ent = tipo==='subsidiado' ? 0 : r2(el('cx-c-entrada').value||0);
+  const ent = r2(el('cx-c-entrada').value||0), file = tipo==='subsidiado' ? ((el('cx-c-file').files||[])[0]||null) : null;
+  if(tipo==='subsidiado' && !file) return {erro:'Anexe o comprovativo da incapacidade financeira ou da urgência.'};
   if(ent<0 || ent>=vp) return {erro:'A entrada tem de ser inferior ao valor a pagar.'};
   const resto = r2(vp-ent), venc = el('cx-c-venc').value; if(tipo!=='subsidiado' && !venc) return {erro:'Indique a data.'};
   let parcelas = [];
   if(tipo==='credito') parcelas = [{n:1, valor:resto, venc, paga:false}];
   if(tipo==='parcelado'){ const n = Math.round(Number(el('cx-c-n').value)||0); if(n<2||n>12) return {erro:'Nº de parcelas entre 2 e 12.'}; parcelas = planoParcelas(resto, n, venc); }
-  return {aut:{tipo, motivo, parceiro: tipo==='subsidiado' ? el('cx-c-parceiro').value.trim() : '', entrada:ent, valorAutorizado:vp, parcelas, pedidoPor:currentUser.nome, pedidoPorId:currentUser.id, pedidoEm:new Date().toISOString()}};
+  return {file, aut:{tipo, motivo, fundamento: tipo==='subsidiado' ? el('cx-c-fund').value : '', parceiro: tipo==='subsidiado' ? el('cx-c-parceiro').value.trim() : '', entrada:ent, valorAutorizado:vp, parcelas, pedidoPor:currentUser.nome, pedidoPorId:currentUser.id, pedidoEm:new Date().toISOString()}};
 }
-async function espPedir(inv, aut){
+async function espPedir(inv, aut, file){
+  if(file){ try{ aut.anexoId = await anexoGuardar(file, {refTipo:'subsidio', refId:inv.id, pacienteNid:inv.pacienteNid||''}); aut.anexoNome = file.name||'comprovativo'; }catch(e){ toast('⚠️ '+e.message); return false; } }
   await Store.setDoc('invoices', inv.id, {aut, autEstado:'Pedida', autRecusa:''});
   audit('autorizacao_pedida','Pagamento especial', inv.pacienteNome||'', `${ESP_TIPOS[aut.tipo]} · ${fmtMZN(aut.valorAutorizado)} · ${aut.motivo}`);
   toast('✅ Pedido enviado ao Administrador e ao Director. Volte ao Caixa depois de autorizado.', 6000);
@@ -2330,7 +2335,7 @@ function viewAutorizacoes(){
   const todos = invoices.filter(i=>i.aut && i.autEstado).sort((a,b)=>(b.aut.pedidoEm||'').localeCompare(a.aut.pedidoEm||'')).slice(0,60), pend = autPendentes();
   const linha = (i, acoes)=>{ const a = i.aut; return `<tr><td class="cell-name">${esc(i.pacienteNome||'—')}<div class="cell-sub">NID ${esc(i.pacienteNid||'')} · ${esc(i.servico||'')}</div></td><td><span class="tag ${a.tipo==='subsidiado'?'green':'amber'}">${ESP_TIPOS[a.tipo]}</span></td>
     <td><b>${fmtMZN(a.valorAutorizado)}</b>${a.tipo!=='subsidiado'?`<div class="cell-sub">entrada ${fmtMZN(a.entrada)} · ${a.parcelas.length} parcela(s)</div>`:''}</td>
-    <td class="cell-sub">${esc(a.motivo||'')}${a.parceiro?'<br>Parceiro: '+esc(a.parceiro):''}<br>Pedido por ${esc(a.pedidoPor||'')} · ${a.pedidoEm?new Date(a.pedidoEm).toLocaleString('pt-PT'):''}</td>
+    <td class="cell-sub">${a.fundamento?'<b>'+esc(a.fundamento)+'</b><br>':''}${esc(a.motivo||'')}${a.parceiro?'<br>Parceiro: '+esc(a.parceiro):''}${a.anexoId?`<br><a href="#" onclick="anexoVer('${a.anexoId}');return false;">📎 Ver comprovativo</a>`:''}${a.dirNota?'<br>Nota do Director: '+esc(a.dirNota):''}<br>Pedido por ${esc(a.pedidoPor||'')} · ${a.pedidoEm?new Date(a.pedidoEm).toLocaleString('pt-PT'):''}</td>
     <td class="cell-sub">${a.adminPor?'Autorizou: '+esc(a.adminPor)+'<br>':''}${a.dirPor?'Visto: '+esc(a.dirPor):''}<div>${esc(autEstadoTxt(i.autEstado)||i.autEstado)}${i.autRecusa?': '+esc(i.autRecusa):''}</div></td><td>${acoes}</td></tr>`; };
   const ids = new Set(pend.map(i=>i.id));
   return `<div class="page-head"><div><h1>Autorizações de pagamento especial</h1><div class="desc">Subsidiados, créditos e pagamentos parcelados. O Administrador autoriza e o Director dá o visto — só depois a Recepção emite o documento.</div></div></div>
@@ -2353,21 +2358,39 @@ async function autDecidir(id, d){
       audit('autorizacao_recusada','Pagamento especial', inv.pacienteNome||'', v.m.trim()); toast('Pedido recusado.');
     }); return;
   }
+  const dirDecide = (est==='Pedida' && dir) || est==='AutorizadaAdmin';
+  const executar = async nota=>{
   const agora = new Date().toISOString(), a = {...inv.aut};
   let novo;
+  if(nota) a.dirNota = nota;
   if(est==='Pedida'){ a.adminPor = currentUser.nome; a.adminEm = agora; if(dir){ a.dirPor = currentUser.nome; a.dirEm = agora; novo = 'Autorizada'; } else novo = 'AutorizadaAdmin'; }
   else { a.dirPor = currentUser.nome; a.dirEm = agora; novo = 'Autorizada'; }
   try{ await Store.claim('invoices', id, 'autEstado', est, novo); }catch(e){ toast('⚠️ Este pedido já foi decidido.'); return; }
   await Store.setDoc('invoices', id, {aut:a});
   audit(novo==='Autorizada'?'autorizacao_visada':'autorizacao_admin','Pagamento especial', inv.pacienteNome||'', `${ESP_TIPOS[a.tipo]} · ${fmtMZN(a.valorAutorizado)}`);
   toast(novo==='Autorizada' ? '✅ Autorizado e visado. A Recepção já pode emitir o documento.' : '✅ Autorizado. Segue para o visto do Director.');
+  };
+  if(dirDecide) gmodal('Visto do Director — '+(inv.pacienteNome||''), [{id:'n', label:'Nota do Director *', type:'textarea'}], 'Dar visto', async v=>{ if(!v.n.trim()){ toast('⚠️ A nota do Director é obrigatória.'); return false; } await executar(v.n.trim()); }, 'A nota fica registada e consta do documento de autorização.');
+  else await executar('');
 }
 /* ---- documento: linhas do pagamento especial ---- */
 function htmlEspecial(i){
   const e = i.especial; if(!e) return '';
+  if(e.tipo==='subsidiado') return `<div class="doc-totais" style="margin-top:8px;"><div><span>Parte subsidiada pela clínica (ver documento de autorização ${esc(e.numeroAut||'')})</span><b>${fmtMZN(e.valorDiferido)}</b></div></div>`;
   const linhas = [`<div><span>${ESP_TIPOS[e.tipo]}${e.tipo==='subsidiado'&&e.parceiro?' — parceiro '+esc(e.parceiro):''}</span><b>${fmtMZN(e.valorDiferido)}</b></div>`];
   if(e.tipo!=='subsidiado') (e.parcelas||[]).forEach(p=>linhas.push(`<div><span>Parcela ${p.n} — vence ${fmtDate(p.venc)}</span><b>${fmtMZN(p.valor)}</b></div>`));
   return `<div class="doc-totais" style="margin-top:8px;"><div style="font-weight:700;"><span>Pagamento especial autorizado</span><b></b></div>${linhas.join('')}<div style="font-size:10.5px;"><span>Autorizado por ${esc(e.adminPor||'')} · visto ${esc(e.dirPor||'')}</span><b></b></div></div>`;
+}
+function htmlSubsidio(inv, via){
+  const e = inv.especial||{}, pago = valorPacienteDe(inv), total = Number(e.valorTotal)||Number(inv.valor)||0, num = inv.tipoDoc==='Subsídio' ? inv.numero : e.numeroAut;
+  return `<div class="doc"><div class="doc-via">${esc(via||'')}</div>${docHeader('Autorização de Subsídio', num||'', diaLocal(inv.emitidaEm||''))}
+    <div style="border:2px solid #b3261e;color:#b3261e;font-weight:700;text-align:center;padding:6px;margin:8px 0;font-size:12px;">DOCUMENTO SEM EFEITOS FISCAIS — não substitui a VD nem a factura</div>
+    <div class="doc-section"><div class="lab">Paciente</div><div style="font-size:13.5px;"><b>${esc(inv.pacienteNome)}</b> · NID ${esc(inv.pacienteNid||'—')}</div></div>
+    <div class="doc-section"><div class="lab">Serviço subsidiado</div><div style="font-size:12.5px;">${esc(inv.servico||'')}</div>
+      <div class="doc-totais" style="margin-top:8px;"><div><span>Valor do serviço</span><b>${fmtMZN(total)}</b></div><div><span>Pago pelo paciente${pago>0?' (facturado na VD '+esc(inv.numero||'')+')':''}</span><b>${fmtMZN(pago)}</b></div><div style="font-weight:700;"><span>Subsidiado pela Clínica Boa Visão</span><b>${fmtMZN(e.valorDiferido)}</b></div></div></div>
+    <div class="doc-section"><div class="lab">Fundamento</div><div style="font-size:12.5px;"><b>${esc(e.fundamento||'')}</b>${e.parceiro?' · enviado por '+esc(e.parceiro):''}<br>${esc(e.motivo||'')}<br>Comprovativo anexado: ${esc(e.anexoNome||'—')}</div></div>
+    <div class="doc-section"><div class="lab">Autorização</div><div style="font-size:12.5px;">Autorizado por <b>${esc(e.adminPor||'')}</b>${e.adminEm?' em '+new Date(e.adminEm).toLocaleString('pt-PT'):''}<br>Visto do Director: <b>${esc(e.dirPor||'')}</b>${e.dirEm?' em '+new Date(e.dirEm).toLocaleString('pt-PT'):''}${e.dirNota?'<br><i>Nota do Director:</i> '+esc(e.dirNota):''}</div></div>
+    <div class="doc-foot"><div class="doc-sign"><div class="line"></div>Assinatura do paciente</div><div class="doc-sign"><div class="line"></div>${esc(e.dirPor||'')} (Director)</div><div class="doc-sign"><div class="line"></div>${esc(inv.emitidaPor||'')} (Recepção)</div></div></div>`;
 }
 /* ---- créditos, parcelas e subsidiados ---- */
 const espSaldo = i => i.especial && i.especial.tipo!=='subsidiado' ? r2((i.especial.parcelas||[]).filter(p=>!p.paga).reduce((t,p)=>t+p.valor,0)) : 0;
@@ -4041,7 +4064,7 @@ function openPagamento(invId){
     const ve = c.valorEntidade, vp = c.valorPaciente;
     const E = espContexto(vp);
     if(E.bloqueado){ toast('⚠️ Aguarda a autorização do Administrador e o visto do Director.'); return; }
-    if(E.pedir){ const q = espLerPedido(E.pedir, vp); if(q.erro){ toast('⚠️ '+q.erro); return; } await espPedir(inv, q.aut); closeModal('modal-pagamento'); return; }
+    if(E.pedir){ const q = espLerPedido(E.pedir, vp); if(q.erro){ toast('⚠️ '+q.erro); return; } if((await espPedir(inv, q.aut, q.file))===false) return; closeModal('modal-pagamento'); return; }
     if(E.aut && Math.abs(vp-E.aut.valorAutorizado)>0.004){ toast('⚠️ O valor mudou desde a autorização — peça nova autorização.'); return; }
     const vpPag = E.vpPag;
     const pm0 = vpPag>0 ? pmLer('pg-pm', vpPag) : {pagamentos:[], metodo:'Conta a crédito', refPagamento:''};
@@ -4056,10 +4079,11 @@ function openPagamento(invId){
       pg = {...pg, beneficiarioId: await Store.addDoc('beneficiarios', {pacienteNid:inv.pacienteNid, pacienteNome:inv.pacienteNome||'', entidadeTipo:pg.tipo, entidadeId:pg.entidadeId, entidadeNome:pg.entidadeNome,
         plano:pg.planoNome||'', cartao:pg.cartao||'', titular:'', validadeInicio:'', validadeFim:'', limiteAnual:0, ativo:true, origem:'caixa', validado:false, criadoPor:currentUser.nome, criadoEm:new Date().toISOString()})};
     }
-    const tipoDoc = ve>0 ? 'Factura' : 'VD';
+    const subPuro = !!(E.aut && E.aut.tipo==='subsidiado' && vpPag===0 && ve===0);
+    const tipoDoc = subPuro ? 'Subsídio' : (ve>0 ? 'Factura' : 'VD');
     const agora = new Date().toISOString();
-    const upd = {numero: await docSeq(tipoDoc==='VD'?'VD':'FT'), tipoDoc, estado:'Pago', metodo, pagamentos:pm.pagamentos, refPagamento:refPag, pagoEm:agora, pagoPor:currentUser.nome,
-      emitidaEm:agora, emitidaPor:currentUser.nome, valorPaciente:vpPag, valorEntidade:ve, ...(E.aut ? {especial:{tipo:E.aut.tipo, motivo:E.aut.motivo, parceiro:E.aut.parceiro||'', valorDiferido:r2(vp-vpPag), entrada:vpPag, parcelas:E.aut.parcelas, adminPor:E.aut.adminPor, dirPor:E.aut.dirPor, pedidoPor:E.aut.pedidoPor}} : {}), estadoEntidade: ve>0 ? 'Pendente' : '', pagador:pg,
+    const upd = {numero: await docSeq(tipoDoc==='Subsídio' ? 'AS' : (tipoDoc==='VD'?'VD':'FT')), tipoDoc, ...(subPuro ? {naoFiscal:true} : {}), estado:'Pago', metodo, pagamentos:pm.pagamentos, refPagamento:refPag, pagoEm:agora, pagoPor:currentUser.nome,
+      emitidaEm:agora, emitidaPor:currentUser.nome, valorPaciente:vpPag, valorEntidade:ve, ...(E.aut ? {especial:{tipo:E.aut.tipo, motivo:E.aut.motivo, parceiro:E.aut.parceiro||'', valorDiferido:r2(vp-vpPag), entrada:vpPag, parcelas:E.aut.parcelas, adminPor:E.aut.adminPor, adminEm:E.aut.adminEm||'', dirPor:E.aut.dirPor, dirEm:E.aut.dirEm||'', dirNota:E.aut.dirNota||'', pedidoPor:E.aut.pedidoPor, fundamento:E.aut.fundamento||'', anexoId:E.aut.anexoId||'', anexoNome:E.aut.anexoNome||'', valorTotal:vp, numeroAut:(E.aut.tipo==='subsidiado' && !subPuro) ? await docSeq('AS') : ''}} : {}), estadoEntidade: ve>0 ? 'Pendente' : '', pagador:pg,
       ...(mudou ? {valor:c.valor, itens:c.itens, ...(c.precoReferencia!==undefined ? {precoReferencia:c.precoReferencia} : {}), pagadorAlteradoNoCaixa:true} : {})};
     await Store.setDoc('invoices', inv.id, upd);
     if(inv.apptId){
@@ -4073,7 +4097,7 @@ function openPagamento(invId){
     }
     audit('documento_emitido', 'Factura', upd.numero, `${tipoDoc} · ${fmtMZN(c.valor)} · paciente ${fmtMZN(vp)}${ve>0?' · entidade '+fmtMZN(ve)+' ('+pagLabel(pg)+(pg.requisicao?' · requisição '+pg.requisicao:'')+(pg.cartao?' · cartão '+pg.cartao:'')+')':''} · ${metodo}${mudou?' · pagador definido no Caixa':''}`);
     closeModal('modal-pagamento');
-    toast(`✅ ${tipoDoc==='VD'?'VD':'Factura'} ${upd.numero} emitida${ve>0?' e facturada a '+esc(pg.entidadeNome):''}.`);
+    toast(`✅ ${tipoDoc==='Subsídio'?'Autorização de subsídio':(tipoDoc==='VD'?'VD':'Factura')} ${upd.numero} emitida${ve>0?' e facturada a '+esc(pg.entidadeNome):''}.`);
     imprimirDocumentoCaixa({...inv, ...upd}, false);
   };
   openModal('modal-pagamento');
@@ -7788,6 +7812,8 @@ async function restaurarBackup(){
 
 /* ================= DOCUMENTOS DO CAIXA: VD e factura em duplicado ================= */
 function htmlDocumentoCaixa(inv, via){
+  if(inv.tipoDoc==='Subsídio') return htmlSubsidio(inv, via);
+  if(inv.especial && inv.especial.tipo==='subsidiado'){ const pv = valorPacienteDe(inv); inv = {...inv, valor:pv, itens:[{nome:(inv.servico||'Serviço')+' — parte paga pelo paciente', quantidade:1, precoUnit:pv, subtotal:pv}]}; }
   const pg = inv.pagador || {tipo:'individual'}, ent = Number(inv.valorEntidade)||0, vp = valorPacienteDe(inv);
   const isVD = (inv.tipoDoc || (ent>0 ? 'Factura' : 'VD')) === 'VD';
   const tab = docItensTabela(inv) || `<table class="doc-table"><thead><tr><th>Serviço</th><th style="text-align:right;">Valor</th></tr></thead><tbody><tr><td>${esc(inv.servico)}</td><td style="text-align:right;">${fmtMZN(inv.valor)}</td></tr></tbody></table>`;
@@ -7804,6 +7830,11 @@ function htmlDocumentoCaixa(inv, via){
     ${pagInfo}<div class="doc-section">${tab}${totais}</div>${selo}${rodape}</div>`;
 }
 function imprimirDocumentoCaixa(inv, segundaVia){
+  if(inv.tipoDoc==='Subsídio'){ printDoc(htmlSubsidio(inv, segundaVia?'2.ª VIA':'')); return; }
+  if(inv.especial && inv.especial.tipo==='subsidiado'){ printDoc(`<div class="doc-pages">${htmlDocumentoCaixa(inv, segundaVia?'2.ª VIA':'ORIGINAL')}${htmlSubsidio(inv, segundaVia?'2.ª VIA':'')}</div>`); return; }
+  imprimirDocumentoCaixa0(inv, segundaVia);
+}
+function imprimirDocumentoCaixa0(inv, segundaVia){
   const ent = Number(inv.valorEntidade)||0;
   if(segundaVia) printDoc(htmlDocumentoCaixa(inv, '2.ª VIA'));
   else if(ent>0) printDoc(`<div class="doc-pages">${htmlDocumentoCaixa(inv,'ORIGINAL')}${htmlDocumentoCaixa(inv,'DUPLICADO')}</div>`);
