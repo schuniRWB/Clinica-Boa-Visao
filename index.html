@@ -1478,14 +1478,14 @@ const Store = {
    -------------------------------------------------------------------- */
 const AUDIT_COLS = {patients:'Paciente', appointments:'Consulta', invoices:'Factura', users:'Utilizador', especialidades:'Especialidade',
   tratamentos:'Tratamento (catálogo)', exames:'Exame (catálogo)', tratamentosPrescritos:'Tratamento prescrito', pedidosExame:'Pedido de exames',
-  receitas:'Receita', prontuarios:'Prontuário', medicamentos:'Produto', vendas:'Venda', despesas:'Despesa', funcionarios:'Funcionário', turnosRecepcao:'Entrega de turno (recepção)', requisicoes:'Requisição de pagamento', transferencias:'Envio de fundos', salarios:'Folha de salários', assiduidade:'Assiduidade', adiantamentos:'Adiantamento', feriasPlano:'Férias', disciplinares:'Procedimento disciplinar', fundoManeio:'Fundo de maneio', reconciliacoes:'Reconciliação bancária', apuramentosIva:'Apuramento do IVA', config:'Configuração',
+  receitas:'Receita', prontuarios:'Prontuário', medicamentos:'Produto', vendas:'Venda', despesas:'Despesa', funcionarios:'Funcionário', turnosRecepcao:'Entrega de turno (recepção)', receitasOculos:'Receita de óculos', relatoriosMedicos:'Relatório médico', consentimentos:'Consentimento informado', requisicoes:'Requisição de pagamento', transferencias:'Envio de fundos', salarios:'Folha de salários', assiduidade:'Assiduidade', adiantamentos:'Adiantamento', feriasPlano:'Férias', disciplinares:'Procedimento disciplinar', fundoManeio:'Fundo de maneio', reconciliacoes:'Reconciliação bancária', apuramentosIva:'Apuramento do IVA', config:'Configuração',
   empresas:'Empresa', seguradoras:'Seguradora', internamentos:'Internamento', cardex:'Prescrição (cardex)', camas:'Cama', referenciacoes:'Encaminhamento', beneficiarios:'Beneficiário', recebimentos:'Recebimento de entidade', tratamentosInt:'Tratamento (internamento)', planos:'Plano terapêutico'};
 const AUDIT_KEYS = ['estado','estadoPagamento','valor','total','preco','stock','stockMin','role','ativo','metodo','username','tipo','data','hora','medicoId','salarioBase','faltasMes','nome','valorEntidade','valorPaciente','estadoEntidade','comparticipacao','tipoDoc','destino','internamentoId','entidadePago','validado','acordoFim','limiteAnual'];
 const AUDIT_HIDE = ['passwordHash','salt','pin'];
 let auditSuspended = false;
 function auditMem(col){
   return ({patients, appointments, invoices, users, especialidades, tratamentos, exames, tratamentosPrescritos, pedidosExame, receitas, prontuarios,
-    medicamentos, vendas, despesas, funcionarios, turnosRecepcao, requisicoes, salarios, assiduidade, adiantamentos, feriasPlano, disciplinares, fundoManeio, reconciliacoes, apuramentosIva, empresas, seguradoras, internamentos, cardex, camas, referenciacoes, beneficiarios, tratamentosInt, planos, config:[configDoc]})[col] || null;
+    medicamentos, vendas, despesas, funcionarios, turnosRecepcao, receitasOculos, relatoriosMedicos, consentimentos, requisicoes, salarios, assiduidade, adiantamentos, feriasPlano, disciplinares, fundoManeio, reconciliacoes, apuramentosIva, empresas, seguradoras, internamentos, cardex, camas, referenciacoes, beneficiarios, tratamentosInt, planos, config:[configDoc]})[col] || null;
 }
 function auditPick(col, o){
   const r = {};
@@ -1665,7 +1665,7 @@ function apgTodas(on){ apgLista().slice(0,300).filter(a=>!apgTemInternamento(a))
 /* ================= LIMPAR DADOS DE TESTE (mantém catálogos e perfis) ================= */
 const LIMPAR_GRUPOS = {
   clinico:{nome:'Pacientes e atendimento', txt:'pacientes, consultas, fila, prontuários, receitas, alertas, emails, pedidos de exames e tratamentos, internamentos (as camas ficam livres), encaminhamentos e beneficiários',
-    cols:['patients','appointments','queue','prontuarios','receitas','alertas','emails','tratamentosPrescritos','pedidosExame','referenciacoes','beneficiarios','internamentos','cardex','administracoes','diarioEnfermagem','sinaisVitais','passagensTurno','turnosRecepcao','contasInt','tratamentosInt','internadosAtivos'], def:true},
+    cols:['patients','appointments','queue','prontuarios','receitas','alertas','emails','tratamentosPrescritos','pedidosExame','referenciacoes','beneficiarios','internamentos','cardex','administracoes','diarioEnfermagem','sinaisVitais','passagensTurno','turnosRecepcao','receitasOculos','relatoriosMedicos','consentimentos','contasInt','tratamentosInt','internadosAtivos'], def:true},
   caixa:{nome:'Caixa e vendas', txt:'facturas, VD e recibos, vendas da farmácia, recebimentos de entidades e movimentos de stock', cols:['invoices','vendas','recebimentos','movimentosStock'], def:true},
   contab:{nome:'Contabilidade e RH de teste', txt:'despesas, requisições de pagamento, fundo de maneio, reconciliações, apuramentos de IVA, folhas de salários, assiduidade, adiantamentos, férias e procedimentos disciplinares (os funcionários ficam)', cols:['despesas','requisicoes','transferencias','anexos','fundoManeio','reconciliacoes','apuramentosIva','salarios','assiduidade','adiantamentos','feriasPlano','disciplinares','presenca'], def:false},
   numeracao:{nome:'Reiniciar a numeração', txt:'os números de pacientes (NID), facturas, receitas, etc. voltam a começar do 1', cols:['contadores'], def:true}
@@ -1967,9 +1967,10 @@ async function anexoGuardar(file, meta){
   return await Store.addDoc('anexos', {...a, ...meta, por:currentUser.nome, em:new Date().toISOString()});
 }
 async function anexoVer(id){
-  if(!id || !podeReq()) return;
+  if(!id) return;
   const a = await Store.getDocById('anexos', id);
-  if(!a){ toast('⚠️ Comprovativo não encontrado.'); return; }
+  if(!a){ toast('⚠️ Documento não encontrado.'); return; }
+  if(a.refTipo==='consentimento' ? !(currentUser && (currentUser.role==='admin' || canSeePatient(a.pacienteNid))) : !podeReq()) return;
   let corpo;
   if(a.mime==='application/pdf'){
     let url = '#'; try{ const b = await (await fetch(a.dados)).blob(); url = URL.createObjectURL(b); }catch(e){}
@@ -2242,6 +2243,249 @@ function fichaHtml(nid, imp){
 }
 function cardFichaCompleta(nid){
   return `<h3 style="margin:22px 0 4px;">Ficha clínica completa</h3><div class="csub">Tudo o que diz respeito ao paciente: consultas, notas, receitas, tratamentos, procedimentos, exames, internamento (sinais vitais, medicação, diário), encaminhamentos e farmácia. Clique em cada secção para abrir.</div>${fichaHtml(nid, false)}`;
+}
+
+/* ================= MODELOS POR ESPECIALIDADE (Oftalmologia, Relatório médico, Aconselhamento) ================= */
+let receitasOculos = [], relatoriosMedicos = [], consentimentos = [];
+const semAcento = t => String(t||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
+function espModelo(u){ const n = semAcento(u && u.especialidadeId ? espNomeDe(u.especialidadeId) : ''); return /oftalm/.test(n) ? 'oftalmologia' : (/aconselh/.test(n) ? 'aconselhamento' : null); }
+const veOft = ()=> !!currentUser && (currentUser.role==='admin' || espModelo(currentUser)==='oftalmologia');
+const veAcons = ()=> !!currentUser && (currentUser.role==='admin' || espModelo(currentUser)==='aconselhamento');
+const CLINICA_DEF = {morada:'Bairro Aeroporto 1, EN1, Cruzamento Milange, Cidade de Mocuba-Zambézia', nuit:'401649093', site:'www.clinicaboavisao.co.mz', email1:'geral@clinicaboavisao.co.mz', email2:'consultoriomedicoboavisao@gmail.com', tel:'+258 861669146 / 851891674'};
+function clinicaBloco(){ const c = configDoc||{};
+  return `<div style="font-size:11px;line-height:1.5;margin:6px 0 10px;"><b>${esc((c.morada||CLINICA_DEF.morada).toUpperCase())}</b><br>NUIT: ${esc(c.nuit||CLINICA_DEF.nuit)} · Website: ${CLINICA_DEF.site}<br>E-mail 1: ${CLINICA_DEF.email1} · E-mail 2: ${CLINICA_DEF.email2}<br>Telefone: ${esc(c.telefone||CLINICA_DEF.tel)}</div>`; }
+const cx = v => v ? '☑' : '☐';
+/* ---- janela genérica de formulário com secções ---- */
+function fichaModal(titulo, secoes, vals, okTxt, onOk, info){
+  let m = document.getElementById('modal-f');
+  if(!m){ m = document.createElement('div'); m.className = 'modal-bg'; m.id = 'modal-f'; document.body.appendChild(m); }
+  const campo = f => {
+    const id = 'f-'+f.id, v = vals[f.id];
+    if(f.t==='check') return `<label style="display:flex;gap:6px;align-items:center;margin:3px 12px 3px 0;"><input type="checkbox" id="${id}" ${v?'checked':''}> ${esc(f.l)}</label>`;
+    if(f.t==='area') return `<div class="field" style="grid-column:1/-1;"><label>${esc(f.l)}</label><textarea id="${id}" rows="2">${esc(v||'')}</textarea></div>`;
+    return `<div class="field"><label>${esc(f.l)}</label><input id="${id}" type="text" value="${esc(v||'')}"></div>`;
+  };
+  m.innerHTML = `<div class="modal wide"><div class="modal-head"><h3>${esc(titulo)}</h3><button class="modal-close" onclick="closeModal('modal-f')">✕</button></div>
+    <div class="modal-body" style="max-height:70vh;overflow:auto;">${info?`<div class="muted-note" style="margin-bottom:8px;">${info}</div>`:''}${secoes.map(s=>`<h4 style="margin:14px 0 6px;">${esc(s.h)}</h4><div class="field-row" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));align-items:end;">${s.f.map(campo).join('')}</div>`).join('')}</div>
+    <div class="modal-foot"><button class="btn" onclick="closeModal('modal-f')">Cancelar</button><button class="btn solid" id="f-ok">${esc(okTxt)}</button></div></div>`;
+  document.getElementById('f-ok').onclick = async ()=>{
+    const v = {}; secoes.forEach(s=>s.f.forEach(f=>{ const e = document.getElementById('f-'+f.id); v[f.id] = f.t==='check' ? e.checked : e.value.trim(); }));
+    const b = document.getElementById('f-ok'); b.disabled = true;
+    let r; try{ r = await onOk(v); }catch(e){ toast('⚠️ Erro: '+e.message); r = false; }
+    b.disabled = false; if(r!==false) closeModal('modal-f');
+  };
+  openModal('modal-f');
+}
+function specHtml(secoes, vals){
+  return secoes.map(s=>{
+    const checks = s.f.filter(f=>f.t==='check'), campos = s.f.filter(f=>f.t!=='check');
+    return `<div class="doc-section"><div class="lab">${esc(s.h)}</div><table class="doc-table" style="table-layout:fixed;"><tbody>
+      ${campos.map(f=>`<tr><td style="width:34%;font-weight:600;">${esc(f.l)}</td><td>${esc(vals[f.id]||'')}</td></tr>`).join('')}
+      ${checks.length?`<tr><td colspan="2">${checks.map(f=>`${cx(vals[f.id])} ${esc(f.l)}`).join(' &nbsp;&nbsp; ')}</td></tr>`:''}</tbody></table></div>`;
+  }).join('');
+}
+const par = (id, l) => [{id:id+'_od', l:l+' — OD'}, {id:id+'_oe', l:l+' — OE'}];
+/* ---- 1) Prontuário de Oftalmologia ---- */
+const OFT_SPEC = [
+  {h:'Motivo da consulta', f:[{id:'motivo', l:'Motivo da consulta', t:'area'}]},
+  {h:'Antecedentes e sintomas', f:[{id:'antPess', l:'Antecedentes pessoais', t:'area'}, {id:'antFam', l:'Antecedentes familiares', t:'area'},
+    {id:'s_prurido', l:'Prurido', t:'check'}, {id:'s_epifora', l:'Epífora', t:'check'}, {id:'s_dor', l:'Dor ocular', t:'check'}, {id:'s_cefaleia', l:'Cefaleia', t:'check'}, {id:'s_fotofobia', l:'Fotofobia', t:'check'}, {id:'s_outros', l:'Sintomas — outros'},
+    {id:'medicacao', l:'Medicação', t:'area'}, {id:'g_diabetes', l:'Diabetes', t:'check'}, {id:'g_hta', l:'Hipertensão', t:'check'}, {id:'g_glaucoma', l:'Glaucoma', t:'check'}, {id:'g_outros', l:'Saúde geral — outros'},
+    {id:'saudeOcular', l:'Saúde ocular', t:'area'}, {id:'pa', l:'Pressão arterial'}, {id:'alergias', l:'Alergias'}]},
+  {h:'Acuidade visual', f:[...par('avl','AV longe'), ...par('fe','FE (furo estenopeico)'), ...par('avp','AV perto'), ...par('rxa','RX actual'), {id:'rxa_av_od', l:'RX actual — AV OD'}, {id:'rxa_av_oe', l:'RX actual — AV OE'},
+    ...par('rxap','RX actual perto'), {id:'rxap_av_od', l:'RX actual perto — AV OD'}, {id:'rxap_av_oe', l:'RX actual perto — AV OE'}]},
+  {h:'Motilidade e pupilas', f:[{id:'cover_longe', l:'Cover test — longe'}, {id:'cover_perto', l:'Cover test — perto'}, {id:'ducoes', l:'Ducções'}, {id:'versoes', l:'Versões'}, ...par('pup','Pupilas'), {id:'dip', l:'DIP / DNP'}]},
+  {h:'Refracção', f:[...par('rx','RX'), {id:'rx_av_od', l:'RX — AV OD'}, {id:'rx_av_oe', l:'RX — AV OE'}, ...par('subj','Subjectivo'), {id:'subj_av_od', l:'Subjectivo — AV OD'}, {id:'subj_av_oe', l:'Subjectivo — AV OE'},
+    ...par('perto','Perto'), {id:'perto_av_od', l:'Perto — AV OD'}, {id:'perto_av_oe', l:'Perto — AV OE'}]},
+  {h:'Oftalmoscopia, lâmpada de fenda e PIO', f:[{id:'oft_od', l:'Oftalmoscopia OD', t:'area'}, {id:'oft_oe', l:'Oftalmoscopia OE', t:'area'}, {id:'lf_od', l:'Lâmpada de fenda OD', t:'area'}, {id:'lf_oe', l:'Lâmpada de fenda OE', t:'area'}, {id:'pio_od', l:'PIO — OD'}, {id:'pio_oe', l:'PIO — OE'}]},
+  {h:'Diagnóstico e tratamento', f:[{id:'dxRef', l:'Dx refractivo'}, {id:'dxMotor', l:'Dx motor'}, {id:'dxPat', l:'Dx patológico'}, {id:'trat1', l:'Tratamento 1'}, {id:'trat2', l:'Tratamento 2'}, {id:'trat3', l:'Tratamento 3'}, {id:'obs', l:'Observações', t:'area'}]}
+];
+function fichaOftAbrir(nid, apptId){
+  if(!veOft() || !canSeePatient(nid)) return;
+  const e = prontuarios.find(x=>x.apptId===apptId), p = patientByNid(nid) || {};
+  if(!apptId){ toast('⚠️ Inicie o atendimento da consulta antes de preencher a ficha oftalmológica.'); return; }
+  const vals = Object.assign({alergias:(p.alergias&&p.alergias!=='—')?p.alergias:'', motivo:e?e.queixa||'':''}, e && e.oft ? e.oft : {});
+  fichaModal('Prontuário de Oftalmologia — '+(p.nome||''), OFT_SPEC, vals, 'Guardar no prontuário', async v=>{
+    const a = appointments.find(x=>x.id===apptId), dx = [v.dxRef, v.dxMotor, v.dxPat].filter(Boolean).join(' · ');
+    const data = {pacienteNid:nid, apptId, medicoId:a?a.medicoId:currentUser.id, medicoNome:a?a.medicoNome:currentUser.nome, especialidade:a?a.especialidadeNome:'Oftalmologia', data:e?e.data:todayStr(),
+      queixa:v.motivo, exame:`AV longe OD ${v.avl_od||'—'} / OE ${v.avl_oe||'—'} · PIO ${v.pio_od||'—'}/${v.pio_oe||'—'}`, diagnostico:dx||(e?e.diagnostico||'':''), notas:v.obs, oft:v, atualizadoEm:new Date().toISOString()};
+    if(e) await Store.setDoc('prontuarios', e.id, data); else await Store.addDoc('prontuarios', data);
+    toast('✅ Ficha oftalmológica guardada no prontuário.');
+  });
+}
+function fichaOftImprimir(entryId){
+  const e = prontuarios.find(x=>x.id===entryId); if(!e || !e.oft || !canSeePatient(e.pacienteNid)) return;
+  const p = patientByNid(e.pacienteNid) || {nome:''}, v = e.oft;
+  printDoc(`<div class="doc" style="font-size:11.5px;">${docHeader('Prontuário de Oftalmologia', e.pacienteNid, e.data)}${clinicaBloco()}
+    <div class="doc-section"><div class="lab">Paciente</div><table class="doc-table"><tbody>
+      <tr><td><b>Nome:</b> ${esc(p.nome)}</td><td><b>NID:</b> ${esc(e.pacienteNid)}</td><td><b>Idade:</b> ${esc(p.idade||'—')}</td><td><b>Sexo:</b> M ${cx(/^m/i.test(p.sexo||''))} F ${cx(/^f/i.test(p.sexo||''))}</td></tr>
+      <tr><td><b>Moradia:</b> ${esc(p.morada||'')}</td><td><b>Ocupação:</b> ${esc(p.ocupacao||p.ocup||'')}</td><td><b>Contacto:</b> ${esc(p.contacto||p.tel||'')}</td><td><b>Data:</b> ${fmtDate(e.data)}</td></tr></tbody></table></div>
+    ${specHtml(OFT_SPEC, v)}${docFooter(e.medicoNome)}</div>`);
+}
+/* ---- 2) Receita de óculos (Prescrição de Óculos) ---- */
+const rf = (pre, l) => ['esf','cil','eixo','dp'].map((k,i)=>({id:pre+'_'+k, l:l+' — '+['Esférico','Cilíndrico','Eixo','Distância pupilar'][i]}));
+const OCULOS_SPEC = [
+  {h:'Longe', f:[...rf('ld','Olho direito'), ...rf('le','Olho esquerdo')]},
+  {h:'Perto', f:[...rf('pd','Olho direito'), ...rf('pe','Olho esquerdo')]},
+  {h:'Diagnóstico refractivo', f:[{id:'miopia', l:'Miopia', t:'check'}, {id:'hipermetropia', l:'Hipermetropia', t:'check'}, {id:'astigmatismo', l:'Astigmatismo', t:'check'}, {id:'presbiopia', l:'Presbiopia', t:'check'}]},
+  {h:'Lentes', f:[{id:'multifocal', l:'Multifocal', t:'check'}, {id:'bifocal', l:'Bifocal', t:'check'}, {id:'vs', l:'V.S.', t:'check'}, {id:'fotossensivel', l:'Fotossensível', t:'check'}, {id:'ar', l:'A.R.', t:'check'}, {id:'incolor', l:'Incolor', t:'check'}]},
+  {h:'Observação', f:[{id:'obs', l:'Observação', t:'area'}]}
+];
+function receitaOculosNova(nid, copiar){
+  if(!currentUser || currentUser.role!=='medico' && currentUser.role!=='admin') return;
+  const p = patientByNid(nid); if(!p || !canSeePatient(nid)) return;
+  fichaModal('Receita de óculos — '+p.nome, OCULOS_SPEC, copiar||{}, 'Guardar e imprimir', async v=>{
+    const numero = await docSeq('RO'), doc = {numero, pacienteNid:nid, pacienteNome:p.nome, idade:p.idade||'', data:todayStr(), medicoId:currentUser.id, medicoNome:currentUser.nome, v, criadoEm:new Date().toISOString()};
+    const id = await Store.addDoc('receitasOculos', doc); toast('✅ Receita de óculos guardada.');
+    receitaOculosImprimir(id, {...doc, id});
+  });
+}
+function protractor(lado){
+  let s = ''; for(let a=0;a<=180;a+=10){ const r = a*Math.PI/180, x1 = 110+60*Math.cos(r), y1 = 110-60*Math.sin(r), x2 = 110+95*Math.cos(r), y2 = 110-95*Math.sin(r), xt = 110+104*Math.cos(r), yt = 110-104*Math.sin(r); s += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="#555" stroke-width="0.7"/><text x="${xt.toFixed(1)}" y="${yt.toFixed(1)}" font-size="7" text-anchor="middle">${a}</text>`; }
+  return `<div style="text-align:center;"><svg width="220" height="125" viewBox="0 0 220 125"><path d="M15 110 A95 95 0 0 1 205 110" fill="none" stroke="#555"/><path d="M50 110 A60 60 0 0 1 170 110" fill="none" stroke="#555"/>${s}</svg><div style="font-weight:700;">${lado}</div></div>`;
+}
+function receitaOculosImprimir(id, rec){
+  const r = rec || receitasOculos.find(x=>x.id===id); if(!r || !canSeePatient(r.pacienteNid)) return; const v = r.v||{};
+  const tb = (tit, a, b) => `<tr><th style="background:#999;color:#fff;">${tit}</th><th style="background:#999;color:#fff;">Esférico</th><th style="background:#999;color:#fff;">Cilíndrico</th><th style="background:#999;color:#fff;">Eixo</th><th style="background:#999;color:#fff;">Distância Pupilar</th></tr>
+    <tr><td><b>Olho Direito</b></td>${['esf','cil','eixo','dp'].map(k=>`<td style="height:26px;text-align:center;">${esc(v[a+'_'+k]||'')}</td>`).join('')}</tr><tr><td><b>Olho Esquerdo</b></td>${['esf','cil','eixo','dp'].map(k=>`<td style="height:26px;text-align:center;">${esc(v[b+'_'+k]||'')}</td>`).join('')}</tr>`;
+  printDoc(`<div class="doc" style="font-size:12px;">${docHeader('Receita de Óculos', r.numero||'', r.data)}
+    <div style="display:flex;justify-content:space-between;gap:12px;"><div>${clinicaBloco()}</div><div style="border:1.5px solid #666;padding:6px 10px;min-width:120px;"><b>NID:</b> ${esc(r.pacienteNid)}<hr style="margin:4px 0;"><b>IDADE:</b> ${esc(r.idade||'')}</div></div>
+    <div style="margin:8px 0;">Para Sr(a): <b>${esc(r.pacienteNome)}</b></div>
+    <div style="text-align:center;font-weight:700;font-size:14px;">Prescrição de Óculos</div>
+    <div style="display:flex;justify-content:space-around;">${protractor('OE')}${protractor('OD')}</div>
+    <table class="doc-table" style="border:1px solid #888;">${tb('LONGE','ld','le')}${tb('PERTO','pd','pe')}</table>
+    <div style="margin:10px 0;">${cx(v.miopia)} Miopia &nbsp;&nbsp; ${cx(v.hipermetropia)} Hipermetropia &nbsp;&nbsp; ${cx(v.astigmatismo)} Astigmatismo &nbsp;&nbsp; ${cx(v.presbiopia)} Presbiopia</div>
+    <div style="font-size:10px;">1- É normal nos primeiros dias sentir tontura, cefaleia, náuseas, ver desníveis no chão ou escada.<br>2- Para Multifocal ou Bifocal a adaptação poderá levar 07 a 15 dias, podendo ter os mesmos sintomas acima.<br>3- Um exame de vista é sempre oportuno antes de o seu filho começar a estudar.</div>
+    <div style="margin:10px 0;line-height:2;">${cx(v.multifocal)} Multifocal &nbsp;&nbsp;&nbsp; ${cx(v.bifocal)} Bifocal &nbsp;&nbsp;&nbsp; ${cx(v.vs)} V.S.<br>${cx(v.fotossensivel)} Fotossensível &nbsp;&nbsp;&nbsp; ${cx(v.ar)} A.R. &nbsp;&nbsp;&nbsp; ${cx(v.incolor)} Incolor</div>
+    <div style="min-height:46px;border-bottom:1px solid #888;">Observação: ${esc(v.obs||'')}</div>
+    <div style="display:flex;justify-content:space-between;margin-top:30px;"><div>Data: ${fmtDate(r.data)}</div><div style="min-width:240px;border-top:1px solid #000;text-align:center;padding-top:4px;">Assinatura do Clínico — ${esc(r.medicoNome)}</div></div></div>`);
+}
+/* ---- 3) Requisição de exames especiais (modelo da Oftalmologia) ---- */
+const REQ_EXAMES_OFT = ['FUNDUSCAMERA','TONOMETRIA','OCT-','OCT-RETINA','OCT-GLAUCOMA','CAMPIMETRIA','GONIOSCOPIA','HEMOGRAMA','HIV','HTZ','GLICEMIA'];
+const REQ_TRAT_OFT = ['CIRURGIA','TRABECULOTOMIA','LASER DA RETINA','YAG LASER','LASER DE GLAUCOMA'];
+function espDaOrdem(o){ const m = users.find(u=>u.id===o.medicoId); return semAcento(o.especialidadeNome || (m && m.especialidadeId ? espNomeDe(m.especialidadeId) : '')); }
+function ordemEhOft(o){ return /oftalm/.test(espDaOrdem(o)); }
+function reqMarcar(itens, fixos){
+  const norm = t => semAcento(t).replace(/[^a-z0-9]+/g,' ').trim(), marc = new Set(), extra = [];
+  itens.forEach(i=>{ const n = norm(i.nome); let best = -1, bl = 0;
+    fixos.forEach((f,k)=>{ const nf = norm(f); if(nf && (n===nf || (n.includes(nf) && nf.length>bl && !(nf==='oct' && n!=='oct')))){ if(nf.length>=bl){ best = k; bl = nf.length; } } });
+    if(best>=0) marc.add(best); else extra.push(i.nome+(i.quantidade>1?' ×'+i.quantidade:'')); });
+  return {marc, extra};
+}
+function renderRequisicaoOft(tipo, o){
+  const p = patientByNid(o.pacienteNid) || {nome:o.pacienteNome}, isT = tipo==='tratamento', itens = o.itens||[];
+  const ex = isT ? {marc:new Set(), extra:[]} : reqMarcar(itens, REQ_EXAMES_OFT), tr = isT ? reqMarcar(itens, REQ_TRAT_OFT) : {marc:new Set(), extra:[]};
+  const caixa = on => `<span style="display:inline-block;width:34px;height:20px;border:1.5px solid #999;border-radius:4px;text-align:center;line-height:20px;font-weight:700;">${on?'X':''}</span>`;
+  const linha = (txt, on) => `<div style="display:flex;justify-content:space-between;align-items:center;border:1.5px solid #aaa;border-radius:5px;padding:5px 8px;margin:6px 0;min-height:22px;"><span>${esc(txt)}</span>${caixa(on)}</div>`;
+  const exL = REQ_EXAMES_OFT.map((t,k)=>linha(t, ex.marc.has(k))).join('') + ex.extra.map(t=>linha(t, true)).join('');
+  const trF = REQ_TRAT_OFT.map((t,k)=>linha(t, tr.marc.has(k))).join(''), brancos = Math.max(0, 6 - tr.extra.length);
+  const trL = trF + tr.extra.map(t=>linha(t, true)).join('') + Array.from({length:brancos}, ()=>linha('', false)).join('');
+  return `<div class="doc" style="font-size:12px;">${docHeader('Requisição de Exames Especiais', o.numero||'', o.data)}${clinicaBloco()}
+    <div style="text-align:center;font-weight:700;text-decoration:underline;font-size:14px;margin:6px 0;">REQUISIÇÃO DE EXAMES ESPECIAIS</div>
+    <div style="margin:8px 0;">Nome do Paciente: <b>${esc(p.nome)}</b> &nbsp;&nbsp;&nbsp; NID: <b>${esc(o.pacienteNid)}</b></div>
+    <div style="display:flex;gap:18px;"><div style="flex:1;"><div style="text-align:center;font-weight:700;">EXAMES</div>${exL}</div><div style="flex:1;"><div style="text-align:center;font-weight:700;">TRATAMENTOS</div>${trL}</div></div>
+    ${o.notas?`<div style="margin-top:8px;font-size:11.5px;"><b>Indicação clínica:</b> ${esc(o.notas)}</div>`:''}
+    <div style="display:flex;justify-content:space-between;margin-top:26px;"><div>Data: ${fmtDate(o.data)}</div><div style="min-width:240px;border-top:1px solid #000;text-align:center;padding-top:4px;">Assinatura do Clínico — ${esc(o.medicoNome||'')}</div></div></div>`;
+}
+/* ---- 4) Relatório médico (pacientes de empresas e seguradoras) ---- */
+function entidadeDoPaciente(nid){
+  const a = appointments.filter(x=>String(x.pacienteNid)===String(nid) && x.pagador && x.pagador.tipo && x.pagador.tipo!=='individual').sort((x,y)=>String(y.data).localeCompare(String(x.data)))[0];
+  if(a) return a.pagador.entidadeNome || '';
+  const b = beneficiarios.find(x=>String(x.pacienteNid)===String(nid)); if(b){ const e = empresas.find(x=>x.id===b.entidadeId) || seguradoras.find(x=>x.id===b.entidadeId); return e ? e.nome : (b.entidadeNome||''); }
+  return '';
+}
+function relatorioSnapshot(nid){
+  const n = String(nid), ord = (a,b)=>String(a.data||a.criadoEm).localeCompare(String(b.data||b.criadoEm));
+  return {
+    diagnosticos: prontuarios.filter(x=>String(x.pacienteNid)===n && x.diagnostico).sort(ord).map(x=>({data:x.data, texto:x.diagnostico})),
+    tratamentos: tratamentosPrescritos.filter(x=>String(x.pacienteNid)===n && x.estado!=='Cancelado').sort(ord).map(x=>({data:x.data, cat:x.categoria||'Tratamento', itens:(x.itens||[]).map(i=>i.nome+(i.quantidade>1?' ×'+i.quantidade:'')).join(', '), estado:x.estado})),
+    exames: pedidosExame.filter(x=>String(x.pacienteNid)===n && x.estado!=='Cancelado').sort(ord).map(x=>({data:x.data, itens:(x.itens||[]).map(i=>i.nome).join(', ')}))   // nunca inclui resultados
+  };
+}
+function relatorioNovo(nid){
+  if(!currentUser || (currentUser.role!=='medico' && currentUser.role!=='admin') || !canSeePatient(nid)) return;
+  const p = patientByNid(nid); if(!p) return;
+  const ents = [...empresas, ...seguradoras].map(e=>e.nome), padrao = entidadeDoPaciente(nid);
+  gmodal('Relatório médico — '+p.nome, [
+    {id:'ent', label:'Entidade (empresa / seguradora)', type:'select', opts:[...new Set([padrao, ...ents].filter(Boolean))], val:padrao},
+    {id:'ocup', label:'Ocupação', val:p.ocupacao||p.ocup||''},
+    {id:'hist', label:'Descrição do histórico (deixe em branco para escrever à mão no papel)', type:'textarea'}], 'Gerar e imprimir', async v=>{
+      const numero = await docSeq('RM'), doc = {numero, pacienteNid:nid, pacienteNome:p.nome, idade:p.idade||'', sexo:p.sexo||'', entidade:v.ent||'', ocupacao:v.ocup||'', historico:v.hist||'', data:todayStr(), medicoId:currentUser.id, medicoNome:currentUser.nome, ...relatorioSnapshot(nid), criadoEm:new Date().toISOString()};
+      const id = await Store.addDoc('relatoriosMedicos', doc); toast('✅ Relatório médico gerado.'); relatorioImprimir(id, {...doc, id});
+    }, 'Inclui automaticamente o diagnóstico, os tratamentos e procedimentos e os exames requisitados (sem resultados).');
+}
+function relatorioImprimir(id, rec){
+  const r = rec || relatoriosMedicos.find(x=>x.id===id); if(!r || !canSeePatient(r.pacienteNid)) return;
+  const c = configDoc||{}, lin = n => Array.from({length:n}, ()=>`<div style="border-bottom:1px dotted #777;height:24px;"></div>`).join('');
+  const lista = (arr, f, vazio) => arr && arr.length ? `<ul style="margin:4px 0 0 18px;padding:0;">${arr.map(x=>`<li>${f(x)}</li>`).join('')}</ul>` : `<div style="color:#777;">${vazio}</div>`;
+  printDoc(`<div class="doc" style="font-size:12px;"><img class="doc-logo" src="${LOGO_B64}" alt="logo" style="display:block;margin:0 auto 6px;">${clinicaBloco()}
+    <div style="border:1.5px solid #000;margin-top:10px;"><div style="text-align:center;font-weight:700;font-size:15px;text-decoration:underline;padding:8px;">RELATÓRIO MÉDICO DE PACIENTE</div>
+      <div style="padding:8px 14px;line-height:1.9;border-bottom:1.5px solid #000;">Nome do paciente: <b>${esc(r.pacienteNome)}</b><br>Idade: <b>${esc(r.idade||'—')}</b> &nbsp;&nbsp; Género: <b>${esc((r.sexo||'—').charAt(0).toUpperCase())}</b><br>Arquivo Nº: <b>${esc(r.pacienteNid)}</b> &nbsp;&nbsp; Data: <b>${fmtDate(r.data)}</b> &nbsp;&nbsp; Ocupação: <b>${esc(r.ocupacao||'')}</b><br>ENTIDADE ${/seguro|seguradora/i.test(r.entidade)?'SEGURADORA':'EMPREGADORA'}: <b>${esc(r.entidade||'')}</b></div>
+      <div style="padding:8px 14px;"><div style="text-align:center;font-weight:700;margin-bottom:6px;">DESCRIÇÃO DO HISTÓRICO</div>${r.historico?`<div style="white-space:pre-wrap;line-height:1.6;">${esc(r.historico)}</div>`:lin(10)}
+        <div style="font-weight:700;margin-top:12px;">Diagnóstico</div>${lista(r.diagnosticos, d=>`${fmtDate(d.data)} — ${esc(d.texto)}`, 'Sem diagnóstico registado.')}
+        <div style="font-weight:700;margin-top:10px;">Tratamentos e procedimentos</div>${lista(r.tratamentos, t=>`${fmtDate(t.data)} — ${esc(t.cat)}: ${esc(t.itens)}`, 'Nenhum.')}
+        <div style="font-weight:700;margin-top:10px;">Exames requisitados</div>${lista(r.exames, x=>`${fmtDate(x.data)} — ${esc(x.itens)}`, 'Nenhum.')}</div></div>
+    <div style="text-align:center;margin-top:18px;">${esc(c.cidade||'Mocuba')}, ${fmtDate(r.data)}</div><div style="text-align:center;margin-top:16px;font-weight:600;">ASSINATURA E CARIMBO DO MÉDICO</div><div style="width:260px;border-top:1px solid #000;margin:26px auto 0;text-align:center;font-size:11px;padding-top:3px;">${esc(r.medicoNome||'')}</div></div>`);
+}
+/* ---- 5) Consentimento informado (Aconselhamento) ---- */
+function consentimentoNovo(nid){
+  if(!veAcons() || !canSeePatient(nid)) return;
+  const p = patientByNid(nid); if(!p) return;
+  const meds = users.filter(u=>u.role==='medico' && u.ativo!==false);
+  gmodal('Consentimento informado — '+p.nome, [
+    {id:'cir', label:'Técnica / cirurgia *'},
+    {id:'med', label:'Cirurgião(ã) *', type:'select', opts:meds.map(u=>[u.id,u.nome]), val:(meds.find(u=>u.id===currentUser.id)||meds[0]||{}).id},
+    {id:'obj', label:'Objectivos da cirurgia', type:'textarea'}], 'Gerar e imprimir', async v=>{
+      if(!v.cir.trim()){ toast('⚠️ Indique a cirurgia.'); return false; }
+      const cir = users.find(u=>u.id===v.med), numero = await docSeq('CI');
+      const doc = {numero, pacienteNid:nid, pacienteNome:p.nome, cirurgia:v.cir.trim(), cirurgiaoId:v.med, cirurgiao:cir?cir.nome:'', objectivos:v.obj.trim(), data:todayStr(), geradoPor:currentUser.nome, estado:'Gerado', criadoEm:new Date().toISOString()};
+      const id = await Store.addDoc('consentimentos', doc); toast('✅ Consentimento gerado. Imprima, o cliente assina e anexe a cópia.', 6000); consentimentoImprimir(id, {...doc, id});
+    });
+}
+function consentimentoImprimir(id, rec){
+  const r = rec || consentimentos.find(x=>x.id===id); if(!r || !canSeePatient(r.pacienteNid)) return;
+  const blank = (v, n) => v ? `<b><u>${esc(v)}</u></b>` : '_'.repeat(n), h = t => `<div style="font-weight:700;margin:12px 0 4px;">${t}</div>`, li = t => `<div style="margin-left:14px;">• ${t}</div>`;
+  printDoc(`<div class="doc" style="font-size:12px;line-height:1.5;">${docHeader('Consentimento Informado', r.numero||'', r.data)}
+    <div style="text-align:center;font-weight:700;font-size:14px;margin:6px 0 10px;">TERMO DE CONSENTIMENTO PARA CIRURGIA OCULAR</div>
+    <div>Eu, ${blank(r.pacienteNome, 60)}, abaixo-assinado, declaro que fui informado de maneira clara e compreensível sobre o procedimento cirúrgico de correcção de visão que estou prestes a receber. Recebi informações detalhadas sobre a cirurgia, seus objectivos, riscos, benefícios e alternativas disponíveis. Li e compreendi as informações e tive a oportunidade de fazer perguntas e obter esclarecimentos sobre qualquer aspecto relacionado à cirurgia.</div>
+    ${h('DESCRIÇÃO DO PROCEDIMENTO')}${li('O procedimento envolve a correcção da minha visão por meio da cirurgia ocular.')}${li('A técnica específica que será utilizada é a Cirurgia: '+blank(r.cirurgia,40))}${li('O procedimento será realizado pelo(a) Dr(a). '+blank(r.cirurgiao,30)+' na Clínica Boa Visão.')}
+    ${h('OBJECTIVOS DA CIRURGIA')}${li(r.objectivos?`<b><u>${esc(r.objectivos)}</u></b>`:'_'.repeat(80))}
+    ${h('RISCOS POTENCIAIS')}<div>Como em qualquer procedimento médico, há riscos envolvidos. Os riscos potenciais incluem infecção, visão turva temporária, ressecamento ocular, halos nocturnos, sangramento ocular, inchaço e perda de fluído dos olhos, deslocamento da retina, etc.</div><div style="margin-top:4px;">Embora sejam raros, podem ocorrer complicações graves, como infecções graves ou perda permanente de visão.</div>
+    ${h('CONFIDENCIALIDADE')}<div>Compreendo que meus dados médicos e informações pessoais serão mantidos confidenciais, de acordo com as leis aplicáveis.</div>
+    ${h('DIREITOS DO PACIENTE')}${li('Reconheço que tenho o direito de retirar o meu consentimento antes do procedimento.')}${li('Tenho o direito de receber informações adicionais sobre o procedimento e o esclarecimento de dúvidas a qualquer momento.')}
+    ${h('ASSINATURA')}<div>Eu, ${blank(r.pacienteNome, 60)}, declaro que li e compreendi as informações contidas neste termo de consentimento e, por meio da minha assinatura abaixo, dou o meu consentimento voluntário e informado para a cirurgia ocular a ser realizada.</div>
+    <div style="margin-top:22px;">Assinatura do Paciente: ______________________________ &nbsp; Data: ____ / ____ / ________</div>
+    <div style="margin-top:18px;">Assinatura do Acompanhante: ____________________________ &nbsp; Data: ____ / ____ / ________</div>
+    <div style="margin-top:18px;">Assinatura do Cirurgião: ${esc(r.cirurgiao||'')} ______________________ &nbsp; Data: ____ / ____ / ________</div>
+    <div style="margin-top:10px;font-size:10px;color:#555;">NID ${esc(r.pacienteNid)} · ${esc(r.numero||'')}</div></div>`);
+}
+function consentimentoAnexar(id){
+  const r = consentimentos.find(x=>x.id===id); if(!r || !veAcons() || !canSeePatient(r.pacienteNid)) return;
+  gmodal('Anexar o consentimento assinado — '+r.pacienteNome, [{id:'file', label:'Cópia assinada (foto/scan ou PDF) *', type:'file'}, {id:'data', label:'Data da assinatura', type:'date', val:todayStr()}], 'Anexar cópia', async v=>{
+    let aid; try{ aid = await anexoGuardar(v.file, {refTipo:'consentimento', refId:id, pacienteNid:r.pacienteNid}); }catch(e){ toast('⚠️ '+e.message); return false; }
+    await Store.setDoc('consentimentos', id, {estado:'Assinado', anexoId:aid, assinadoEm:v.data||todayStr(), anexadoPor:currentUser.nome});
+    audit('consentimento_assinado','Consentimento',r.numero,'cópia assinada anexada'); toast('✅ Cópia assinada anexada ao consentimento.');
+  }, 'Fotografe ou digitalize o documento depois de assinado pelo paciente, pelo acompanhante e pelo cirurgião.');
+}
+/* ---- cartão dos modelos na página do Prontuário ---- */
+function cardModelosEsp(p, consultaAberta){
+  const nid = p.id, oft = veOft(), ac = veAcons(), ent = entidadeDoPaciente(nid), medico = currentUser.role==='medico' || currentUser.role==='admin';
+  if(!medico || (!oft && !ac && !ent)) return '';
+  const fichas = prontuarios.filter(x=>String(x.pacienteNid)===String(nid) && x.oft).sort((a,b)=>String(b.data).localeCompare(String(a.data)));
+  const ro = receitasOculos.filter(x=>String(x.pacienteNid)===String(nid)).sort((a,b)=>String(b.criadoEm).localeCompare(String(a.criadoEm)));
+  const rm = relatoriosMedicos.filter(x=>String(x.pacienteNid)===String(nid)).sort((a,b)=>String(b.criadoEm).localeCompare(String(a.criadoEm)));
+  const ci = consentimentos.filter(x=>String(x.pacienteNid)===String(nid)).sort((a,b)=>String(b.criadoEm).localeCompare(String(a.criadoEm)));
+  const li = (t, b) => `<div class="row-flex" style="justify-content:space-between;gap:8px;margin:4px 0;font-size:13px;"><span>${t}</span><span>${b}</span></div>`;
+  return `<div class="card" style="margin-bottom:14px;"><h3>Modelos e documentos${oft?' — Oftalmologia':''}${ac?' — Aconselhamento':''}</h3>
+    <div class="row-flex" style="flex-wrap:wrap;gap:8px;margin:6px 0;">
+      ${oft?`<button class="btn sm solid" onclick="fichaOftAbrir('${nid}','${consultaAberta?consultaAberta.id:''}')">👁 Prontuário de oftalmologia</button><button class="btn sm" onclick="receitaOculosNova('${nid}')">👓 Receita de óculos</button>`:''}
+      ${ent?`<button class="btn sm" onclick="relatorioNovo('${nid}')">📄 Relatório médico (${esc(ent)})</button>`:''}
+      ${ac?`<button class="btn sm solid" onclick="consentimentoNovo('${nid}')">📝 Consentimento informado</button>`:''}</div>
+    ${fichas.map(f=>li(`👁 Ficha oftalmológica ${fmtDate(f.data)} · ${esc(f.medicoNome||'')}`, `<button class="btn sm ghost" onclick="fichaOftImprimir('${f.id}')">🖶</button>`)).join('')}
+    ${ro.map(r=>li(`👓 Receita de óculos ${esc(r.numero)} · ${fmtDate(r.data)}`, `<button class="btn sm ghost" onclick="receitaOculosImprimir('${r.id}')">🖶</button> <button class="btn sm ghost" onclick="receitaOculosNova('${r.pacienteNid}', receitasOculos.find(x=>x.id==='${r.id}').v)">Copiar</button>`)).join('')}
+    ${rm.map(r=>li(`📄 Relatório médico ${esc(r.numero)} · ${fmtDate(r.data)} · ${esc(r.entidade||'')}`, `<button class="btn sm ghost" onclick="relatorioImprimir('${r.id}')">🖶</button>`)).join('')}
+    ${ci.map(r=>li(`📝 Consentimento ${esc(r.numero)} · ${esc(r.cirurgia)} · ${r.estado==='Assinado'?'<span class="tag green">Assinado '+fmtDate(r.assinadoEm)+'</span>':'<span class="tag amber">Por assinar</span>'}`, `<button class="btn sm ghost" onclick="consentimentoImprimir('${r.id}')">🖶</button> ${r.estado==='Assinado'?`<button class="btn sm ghost" onclick="anexoVer('${r.anexoId}')">📎 Ver cópia</button>`:(ac?`<button class="btn sm solid" onclick="consentimentoAnexar('${r.id}')">Anexar assinado</button>`:'')}`)).join('')}
+  </div>`;
 }
 
 /* ================= TABELA DE PREÇOS DA FARMÁCIA (lista «Novembro 2026»: Nome / Preço / Quantidade, por grupo) ================= */
@@ -2527,6 +2771,9 @@ function bootApp(){
   Store.listen('administracoes', arr=>{ administracoes = arr; if(currentUser) render(); });
   Store.listen('diarioEnfermagem', arr=>{ diarioEnf = arr; if(currentUser) render(); });
   Store.listen('sinaisVitais', arr=>{ sinaisVitais = arr; if(currentUser) render(); });
+  Store.listen('receitasOculos', arr=>{ receitasOculos = arr; if(currentUser && currentView==='prontuario') render(); });
+  Store.listen('relatoriosMedicos', arr=>{ relatoriosMedicos = arr; if(currentUser && currentView==='prontuario') render(); });
+  Store.listen('consentimentos', arr=>{ consentimentos = arr; if(currentUser && currentView==='prontuario') render(); });
   Store.listen('turnosRecepcao', arr=>{ turnosRecepcao = arr; turnoBadge(); if(currentUser && currentView==='turnorec') render(); });
   Store.listen('passagensTurno', arr=>{ passagensTurno = arr; if(currentUser && currentView==='passagem') render(); });
   Store.listen('referenciacoes', arr=>{ referenciacoes = arr; if(currentUser) render(); });
@@ -4091,6 +4338,7 @@ function viewProntuario(){
     </div>
   </div>
 
+  ${cardModelosEsp(p, consultaAberta)}
   <div class="grid-2">
     <div class="card">
       <h3>Histórico clínico</h3>
@@ -6628,7 +6876,7 @@ async function resetSistema(){
   if(!confirm("ATENÇÃO: isto vai apagar PERMANENTEMENTE todos os dados do sistema — pacientes, consultas, facturas, receitas, stock, vendas, despesas, funcionários, especialidades e utilizadores. Esta ação não pode ser desfeita. Continuar?")) return;
   const confirmText = prompt('Para confirmar, escreva exactamente: APAGAR TUDO');
   if(confirmText !== 'APAGAR TUDO'){ toast("Reset cancelado — texto de confirmação não corresponde."); return; }
-  const collections = ['contadores','patients','appointments','queue','invoices','especialidades','prontuarios','receitas','medicamentos','vendas','despesas','funcionarios','alertas','emails','tratamentos','exames','tratamentosPrescritos','pedidosExame','empresas','seguradoras','camas','internamentos','cardex','administracoes','diarioEnfermagem','sinaisVitais','passagensTurno','turnosRecepcao','referenciacoes','beneficiarios','recebimentos','contasInt','tratamentosInt','movimentosStock','planos','internadosAtivos','users','config','requisicoes','transferencias','anexos','presenca','salarios','assiduidade','adiantamentos','feriasPlano','disciplinares','fundoManeio','reconciliacoes','apuramentosIva'];   // 'auditoria' é preservada
+  const collections = ['contadores','patients','appointments','queue','invoices','especialidades','prontuarios','receitas','medicamentos','vendas','despesas','funcionarios','alertas','emails','tratamentos','exames','tratamentosPrescritos','pedidosExame','empresas','seguradoras','camas','internamentos','cardex','administracoes','diarioEnfermagem','sinaisVitais','passagensTurno','turnosRecepcao','receitasOculos','relatoriosMedicos','consentimentos','referenciacoes','beneficiarios','recebimentos','contasInt','tratamentosInt','movimentosStock','planos','internadosAtivos','users','config','requisicoes','transferencias','anexos','presenca','salarios','assiduidade','adiantamentos','feriasPlano','disciplinares','fundoManeio','reconciliacoes','apuramentosIva'];   // 'auditoria' é preservada
   toast("⏳ A apagar todos os dados…", 60000);
   auditSuspended = true;
   try{
@@ -7319,7 +7567,7 @@ function aplicarFiltroAuditoria(){
 
 /* ================= CÓPIA DE SEGURANÇA ================= */
 const BACKUP_COLS = ['contadores','config','users','patients','appointments','queue','invoices','especialidades','prontuarios','receitas','medicamentos','vendas','despesas',
-  'funcionarios','alertas','emails','tratamentos','exames','tratamentosPrescritos','pedidosExame','empresas','seguradoras','camas','internamentos','cardex','administracoes','diarioEnfermagem','sinaisVitais','passagensTurno','turnosRecepcao','referenciacoes','beneficiarios','recebimentos','contasInt','tratamentosInt','movimentosStock','planos','internadosAtivos','requisicoes','transferencias','anexos','salarios','assiduidade','adiantamentos','feriasPlano','disciplinares','fundoManeio','reconciliacoes','apuramentosIva','auditoria'];
+  'funcionarios','alertas','emails','tratamentos','exames','tratamentosPrescritos','pedidosExame','empresas','seguradoras','camas','internamentos','cardex','administracoes','diarioEnfermagem','sinaisVitais','passagensTurno','turnosRecepcao','receitasOculos','relatoriosMedicos','consentimentos','referenciacoes','beneficiarios','recebimentos','contasInt','tratamentosInt','movimentosStock','planos','internadosAtivos','requisicoes','transferencias','anexos','salarios','assiduidade','adiantamentos','feriasPlano','disciplinares','fundoManeio','reconciliacoes','apuramentosIva','auditoria'];
 function baixarFicheiro(nome, texto, tipo){
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([texto], {type: tipo||'application/json'}));
@@ -8340,6 +8588,7 @@ function renderReciboDoc(inv){
   </div>`;
 }
 function renderOrdemDoc(tipo, o){
+  if(ordemEhOft(o)) return renderRequisicaoOft(tipo, o);
   const p = patientByNid(o.pacienteNid) || {nome:o.pacienteNome};
   const isT = tipo==='tratamento';
   const pago = o.estado && o.estado!=='Aguarda pagamento' && o.estado!=='Cancelado';
