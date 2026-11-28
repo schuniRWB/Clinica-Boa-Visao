@@ -1478,14 +1478,14 @@ const Store = {
    -------------------------------------------------------------------- */
 const AUDIT_COLS = {patients:'Paciente', appointments:'Consulta', invoices:'Factura', users:'Utilizador', especialidades:'Especialidade',
   tratamentos:'Tratamento (catálogo)', exames:'Exame (catálogo)', tratamentosPrescritos:'Tratamento prescrito', pedidosExame:'Pedido de exames',
-  receitas:'Receita', prontuarios:'Prontuário', medicamentos:'Produto', vendas:'Venda', despesas:'Despesa', funcionarios:'Funcionário', turnosRecepcao:'Entrega de turno (recepção)', receitasOculos:'Receita de óculos', relatoriosMedicos:'Relatório médico', consentimentos:'Consentimento informado', requisicoes:'Requisição de pagamento', transferencias:'Envio de fundos', salarios:'Folha de salários', assiduidade:'Assiduidade', adiantamentos:'Adiantamento', feriasPlano:'Férias', disciplinares:'Procedimento disciplinar', fundoManeio:'Fundo de maneio', reconciliacoes:'Reconciliação bancária', apuramentosIva:'Apuramento do IVA', config:'Configuração',
+  receitas:'Receita', prontuarios:'Prontuário', medicamentos:'Produto', vendas:'Venda', despesas:'Despesa', funcionarios:'Funcionário', turnosRecepcao:'Entrega de turno (recepção)', receitasOculos:'Receita de óculos', relatoriosMedicos:'Relatório médico', consentimentos:'Consentimento informado', recebimentosPlano:'Recibo de parcela', requisicoes:'Requisição de pagamento', transferencias:'Envio de fundos', salarios:'Folha de salários', assiduidade:'Assiduidade', adiantamentos:'Adiantamento', feriasPlano:'Férias', disciplinares:'Procedimento disciplinar', fundoManeio:'Fundo de maneio', reconciliacoes:'Reconciliação bancária', apuramentosIva:'Apuramento do IVA', config:'Configuração',
   empresas:'Empresa', seguradoras:'Seguradora', internamentos:'Internamento', cardex:'Prescrição (cardex)', camas:'Cama', referenciacoes:'Encaminhamento', beneficiarios:'Beneficiário', recebimentos:'Recebimento de entidade', tratamentosInt:'Tratamento (internamento)', planos:'Plano terapêutico'};
 const AUDIT_KEYS = ['estado','estadoPagamento','valor','total','preco','stock','stockMin','role','ativo','metodo','username','tipo','data','hora','medicoId','salarioBase','faltasMes','nome','valorEntidade','valorPaciente','estadoEntidade','comparticipacao','tipoDoc','destino','internamentoId','entidadePago','validado','acordoFim','limiteAnual'];
 const AUDIT_HIDE = ['passwordHash','salt','pin'];
 let auditSuspended = false;
 function auditMem(col){
   return ({patients, appointments, invoices, users, especialidades, tratamentos, exames, tratamentosPrescritos, pedidosExame, receitas, prontuarios,
-    medicamentos, vendas, despesas, funcionarios, turnosRecepcao, receitasOculos, relatoriosMedicos, consentimentos, requisicoes, salarios, assiduidade, adiantamentos, feriasPlano, disciplinares, fundoManeio, reconciliacoes, apuramentosIva, empresas, seguradoras, internamentos, cardex, camas, referenciacoes, beneficiarios, tratamentosInt, planos, config:[configDoc]})[col] || null;
+    medicamentos, vendas, despesas, funcionarios, turnosRecepcao, receitasOculos, relatoriosMedicos, consentimentos, recebimentosPlano, requisicoes, salarios, assiduidade, adiantamentos, feriasPlano, disciplinares, fundoManeio, reconciliacoes, apuramentosIva, empresas, seguradoras, internamentos, cardex, camas, referenciacoes, beneficiarios, tratamentosInt, planos, config:[configDoc]})[col] || null;
 }
 function auditPick(col, o){
   const r = {};
@@ -1665,7 +1665,7 @@ function apgTodas(on){ apgLista().slice(0,300).filter(a=>!apgTemInternamento(a))
 /* ================= LIMPAR DADOS DE TESTE (mantém catálogos e perfis) ================= */
 const LIMPAR_GRUPOS = {
   clinico:{nome:'Pacientes e atendimento', txt:'pacientes, consultas, fila, prontuários, receitas, alertas, emails, pedidos de exames e tratamentos, internamentos (as camas ficam livres), encaminhamentos e beneficiários',
-    cols:['patients','appointments','queue','prontuarios','receitas','alertas','emails','tratamentosPrescritos','pedidosExame','referenciacoes','beneficiarios','internamentos','cardex','administracoes','diarioEnfermagem','sinaisVitais','passagensTurno','turnosRecepcao','receitasOculos','relatoriosMedicos','consentimentos','contasInt','tratamentosInt','internadosAtivos'], def:true},
+    cols:['patients','appointments','queue','prontuarios','receitas','alertas','emails','tratamentosPrescritos','pedidosExame','referenciacoes','beneficiarios','internamentos','cardex','administracoes','diarioEnfermagem','sinaisVitais','passagensTurno','turnosRecepcao','receitasOculos','relatoriosMedicos','consentimentos','recebimentosPlano','contasInt','tratamentosInt','internadosAtivos'], def:true},
   caixa:{nome:'Caixa e vendas', txt:'facturas, VD e recibos, vendas da farmácia, recebimentos de entidades e movimentos de stock', cols:['invoices','vendas','recebimentos','movimentosStock'], def:true},
   contab:{nome:'Contabilidade e RH de teste', txt:'despesas, requisições de pagamento, fundo de maneio, reconciliações, apuramentos de IVA, folhas de salários, assiduidade, adiantamentos, férias e procedimentos disciplinares (os funcionários ficam)', cols:['despesas','requisicoes','transferencias','anexos','fundoManeio','reconciliacoes','apuramentosIva','salarios','assiduidade','adiantamentos','feriasPlano','disciplinares','presenca'], def:false},
   numeracao:{nome:'Reiniciar a numeração', txt:'os números de pacientes (NID), facturas, receitas, etc. voltam a começar do 1', cols:['contadores'], def:true}
@@ -2107,13 +2107,14 @@ function turnoSugerido(){ const h = new Date().getHours(); return h>=6&&h<14 ? '
 function turnoResumo(){
   const desde = turnoInicio(), ult = turnoUltimo();
   const docs = invoices.filter(i=>i.estado==='Pago' && i.numero && (i.pagoEm||i.emitidaEm||'')>desde), tm = totaisPorMetodo(docs);
+  planoRecebidoDesde(desde).forEach(r=>r.pagamentos.forEach(x=>{ tm[x.metodo] = r2((tm[x.metodo]||0)+x.valor); }));
   const saldoInicial = ult ? (Number(ult.estado==='Aceite' && ult.recebidoContado!==undefined ? ult.recebidoContado : ult.numerarioContado)||0) : 0;
   const recebido = {}; FORMAS_PAG.forEach(f=>{ recebido[f] = r2(tm[f]||0); });
   Object.keys(tm).forEach(k=>{ if(recebido[k]===undefined) recebido[k] = r2(tm[k]); });
   const pend = invoices.filter(i=>i.estado==='Pendente').sort((a,b)=>(a.data||'').localeCompare(b.data||'')).map(i=>({paciente:i.pacienteNome||'', nid:i.pacienteNid||'', servico:i.servico||'', valor:valorPacienteDe(i), entidade:(i.pagador&&i.pagador.entidadeNome)||''}));
   const fila = queue.map(q=>{ const p = patientByNid(q.pacienteNid); return {senha:q.senha, paciente:p?p.nome:'', esp:q.especialidadeNome||'', estado:q.estado||''}; });
   const int = internamentos.filter(i=>i.estado==='Internado').map(i=>({paciente:i.pacienteNome||'', cama:i.camaNome||''}));
-  return {desde, nDocs:docs.length, recebido, saldoInicial, esperado:r2(saldoInicial+(recebido['Numerário']||0)), pend, fila, int};
+  return {desde, subs:subsDesde(desde), nDocs:docs.length, recebido, saldoInicial, esperado:r2(saldoInicial+(recebido['Numerário']||0)), pend, fila, int};
 }
 function turnoBadge(){
   const n = turnoParaMim() ? 1 : 0;
@@ -2137,7 +2138,7 @@ function viewTurnoRecepcao(){
   <div class="card"><h3>Situação do turno actual</h3><div class="csub">Desde ${new Date(r.desde).toLocaleString('pt-PT')} · ${r.nDocs} documento(s) emitido(s)</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0;">${chips(r.recebido)}<div class="price-chip">Saldo inicial (numerário): ${fmtMZN(r.saldoInicial)}</div><div class="price-chip" style="background:var(--ok-tint);color:var(--ok);">Numerário que deve existir: ${fmtMZN(r.esperado)}</div></div>
     <div class="grid-2">
-      <div><h4 style="margin:6px 0;">Pendentes no Caixa (${r.pend.length})</h4>${lista(r.pend, p=>`<div style="font-size:13px;margin:3px 0;"><b>${esc(p.paciente)}</b> · ${esc(p.servico)} · ${fmtMZN(p.valor)}${p.entidade?' · '+esc(p.entidade):''}</div>`, 'Nada por confirmar no caixa.')}</div>
+      <div><h4 style="margin:6px 0;">Pendentes no Caixa (${r.pend.length})</h4>${lista(r.pend, p=>`<div style="font-size:13px;margin:3px 0;"><b>${esc(p.paciente)}</b> · ${esc(p.servico)} · ${fmtMZN(p.valor)}${p.entidade?' · '+esc(p.entidade):''}</div>`, 'Nada por confirmar no caixa.')}${subsHtml(r.subs,true)}</div>
       <div><h4 style="margin:6px 0;">Fila de espera (${r.fila.length})</h4>${lista(r.fila, q=>`<div style="font-size:13px;margin:3px 0;">#${esc(String(q.senha))} <b>${esc(q.paciente||'—')}</b> · ${esc(q.esp)} · ${esc(q.estado)}</div>`, 'Fila vazia.')}
         <h4 style="margin:10px 0 6px;">Internados (${r.int.length})</h4>${lista(r.int, i=>`<div style="font-size:13px;margin:3px 0;">${esc(i.cama)} · <b>${esc(i.paciente)}</b></div>`, 'Sem internados.')}</div></div>
     ${meu?`<h3 style="margin-top:16px;">Entregar o turno</h3>
@@ -2163,7 +2164,7 @@ async function turnoEntregar(){
   if(Math.abs(dif)>0.004 && !just){ toast(`⚠️ O contado difere do esperado em ${fmtMZN(dif)}. Escreva a justificação.`, 6000); return; }
   const ult = turnoUltimo(); if(ult && ult.estado==='Entregue' && ult.deId===currentUser.id && !confirm('A sua última entrega ainda não foi aceite. Entregar novamente?')) return;
   const tid = await Store.addDoc('turnosRecepcao', {em:new Date().toISOString(), turno:el('tr-turno').value, deId:currentUser.id, deNome:currentUser.nome, paraId:para.id, paraNome:para.nome, desde:r.desde,
-    recebido:r.recebido, saldoInicial:r.saldoInicial, esperado:r.esperado, numerarioContado:conta, diferenca:dif, justificacao:just, notas:el('tr-notas').value.trim(), pendentes:r.pend, fila:r.fila, internados:r.int, estado:'Entregue'});
+    recebido:r.recebido, saldoInicial:r.saldoInicial, esperado:r.esperado, numerarioContado:conta, diferenca:dif, justificacao:just, notas:el('tr-notas').value.trim(), pendentes:r.pend, subsidios:r.subs, fila:r.fila, internados:r.int, estado:'Entregue'});
   audit('turno_recepcao_entregue','Entrega de turno',tid,`${fmtMZN(conta)} a ${para.nome}${Math.abs(dif)>0.004?' · dif. '+dif:''}`);
   toast('✅ Turno entregue. Quem recebe vai ver o aviso e tem de aceitar.', 6000);
 }
@@ -2189,6 +2190,7 @@ function turnoImprimir(id){
       <tr><td><b>Numerário contado e entregue</b></td><td style="text-align:right;"><b>${fmtMZN(h.numerarioContado)}</b></td></tr>
       ${Math.abs(h.diferenca||0)>0.004?`<tr><td>Diferença (${esc(h.justificacao||'')})</td><td style="text-align:right;">${fmtMZN(h.diferenca)}</td></tr>`:''}</tbody></table>
     <h4>Pendentes no caixa (${(h.pendentes||[]).length})</h4><table class="doc-table"><tbody>${(h.pendentes||[]).map(p=>`<tr><td>${esc(p.paciente)} (NID ${esc(p.nid)})</td><td>${esc(p.servico)}</td><td style="text-align:right;">${fmtMZN(p.valor)}</td></tr>`).join('') || '<tr><td>—</td></tr>'}</tbody></table>
+    <h4>Subsidiados, créditos e parcelados (${(h.subsidios||[]).length})</h4><table class="doc-table"><tbody>${(h.subsidios||[]).map(x=>`<tr><td>${esc(x.tipo)} — ${esc(x.paciente)} (${esc(x.doc)})</td><td>aut. ${esc(x.autorizou)} · visto ${esc(x.visto)}</td><td style="text-align:right;">${fmtMZN(x.valor)}</td></tr>`).join('') || '<tr><td>—</td></tr>'}</tbody></table>
     <h4>Fila de espera (${(h.fila||[]).length}) · Internados (${(h.internados||[]).length})</h4><div>${(h.fila||[]).map(q=>`#${esc(String(q.senha))} ${esc(q.paciente)} (${esc(q.esp)})`).join('; ')||'—'}<br>${(h.internados||[]).map(i=>`${esc(i.cama)} ${esc(i.paciente)}`).join('; ')||''}</div>
     ${h.notas?`<h4>Notas</h4><div>${esc(h.notas)}</div>`:''}
     ${h.estado==='Aceite'?`<div style="margin-top:8px;"><b>Aceite por ${esc(h.recebidoPor)}</b> em ${new Date(h.recebidoEm).toLocaleString('pt-PT')} — numerário contado ${fmtMZN(h.recebidoContado)}${h.divergenciaRecepcao?' (<b>divergência</b>: '+esc(h.notaRecepcao||'')+')':''}</div>`:'<div style="margin-top:8px;"><b>Ainda não aceite.</b></div>'}
@@ -2244,6 +2246,160 @@ function fichaHtml(nid, imp){
 function cardFichaCompleta(nid){
   return `<h3 style="margin:22px 0 4px;">Ficha clínica completa</h3><div class="csub">Tudo o que diz respeito ao paciente: consultas, notas, receitas, tratamentos, procedimentos, exames, internamento (sinais vitais, medicação, diário), encaminhamentos e farmácia. Clique em cada secção para abrir.</div>${fichaHtml(nid, false)}`;
 }
+
+/* ================= PAGAMENTO ESPECIAL: SUBSIDIADO · A CRÉDITO · PARCELADO (com autorização) =================
+   Recepção pede no Caixa → Administrador autoriza → Director dá o visto → Recepção emite o documento. */
+let recebimentosPlano = [];
+const ESP_TIPOS = {subsidiado:'Subsidiado', credito:'A crédito', parcelado:'Parcelado'};
+const autEstadoTxt = e => ({Pedida:'Aguarda o Administrador', AutorizadaAdmin:'Aguarda o visto do Director', Autorizada:'Autorizada', Recusada:'Recusada'}[e]||'');
+const autActiva = i => ['Pedida','AutorizadaAdmin','Autorizada'].includes(i.autEstado);
+const ehAdminClinica = ()=> !!currentUser && currentUser.role==='admin' && nivelDe(currentUser)==='clinica';
+function addMeses(d, n){ const x = new Date(d+'T12:00:00'); x.setMonth(x.getMonth()+n); return x.toISOString().slice(0,10); }
+function planoParcelas(total, n, prim){   // divide em n parcelas mensais; a última absorve os cêntimos
+  const base = Math.floor(total/n*100)/100, ps = [];
+  for(let k=0;k<n;k++) ps.push({n:k+1, valor: k===n-1 ? r2(total-base*(n-1)) : base, venc:addMeses(prim, k), paga:false});
+  return ps;
+}
+function espBlocoHtml(inv){
+  return `<div id="cx-esp" style="margin-bottom:12px;"></div>`;
+}
+function espRender(){
+  const box = el('cx-esp'); if(!box || !cxSt) return;
+  const inv = cxSt.inv, vp = cxSt.c ? cxSt.c.valorPaciente : 0;
+  const chave = inv.id+'|'+(inv.autEstado||'')+'|'+(vp>0)+'|'+inv.estado; if(box.dataset.k===chave) return; box.dataset.k = chave;
+  if(!(vp>0) || inv.estado!=='Pendente'){ box.innerHTML=''; return; }
+  const a = inv.aut;
+  if(autActiva(inv) && a){
+    const cor = inv.autEstado==='Autorizada' ? 'var(--ok-tint)' : 'var(--warn-tint)';
+    box.innerHTML = `<div class="muted-note" style="background:${cor};"><b>${ESP_TIPOS[a.tipo]}</b> — ${esc(autEstadoTxt(inv.autEstado))}<br>Valor ${fmtMZN(a.valorAutorizado)}${a.tipo!=='subsidiado'&&a.entrada>0?' · entrada '+fmtMZN(a.entrada):''}${a.tipo==='parcelado'?' · '+a.parcelas.length+' parcelas':''}${a.tipo==='credito'?' · pagar até '+fmtDate(a.parcelas[0].venc):''}${a.parceiro?' · parceiro: '+esc(a.parceiro):''}<br>Motivo: ${esc(a.motivo||'')}
+      ${inv.autEstado==='Pedida'||inv.autEstado==='AutorizadaAdmin'?`<br><button class="btn sm" onclick="espCancelar('${inv.id}')">Cancelar pedido</button>`:''}</div>`;
+    return;
+  }
+  const rec = inv.autEstado==='Recusada' ? `<div class="muted-note" style="background:var(--danger-tint);color:var(--danger);margin-bottom:8px;">Pedido anterior recusado${inv.autRecusa?': '+esc(inv.autRecusa):''}.</div>` : '';
+  box.innerHTML = rec + `<div class="field"><label>Condição de pagamento</label><select id="cx-cond" onchange="espMudou()"><option value="normal">Normal (paga agora)</option>${Object.entries(ESP_TIPOS).map(([k,v])=>`<option value="${k}">${v} (requer autorização)</option>`).join('')}</select></div>
+    <div id="cx-cond-campos" style="display:none;"><div class="field-row">
+      <div class="field"><label>Motivo / justificação *</label><input id="cx-c-motivo" placeholder="Ex.: paciente carenciado, enviado por parceiro…"></div>
+      <div class="field" id="cx-c-parc-box"><label>Parceiro que enviou (se aplicável)</label><input id="cx-c-parceiro"></div>
+      <div class="field" id="cx-c-ent-box"><label>Entrada a pagar agora (MZN)</label><input id="cx-c-entrada" type="number" min="0" step="0.01" value="0"></div>
+      <div class="field" id="cx-c-n-box"><label>Nº de parcelas</label><input id="cx-c-n" type="number" min="2" max="12" value="2"></div>
+      <div class="field" id="cx-c-venc-box"><label id="cx-c-venc-l">Data da 1.ª parcela / limite</label><input id="cx-c-venc" type="date" value="${addMeses(todayStr(),1)}"></div></div></div>`;
+}
+function espMudou(){
+  const t = el('cx-cond').value, c = el('cx-c-motivo') && el('cx-cond-campos');
+  el('cx-cond-campos').style.display = t==='normal' ? 'none' : '';
+  el('cx-c-parc-box').style.display = t==='subsidiado' ? '' : 'none';
+  el('cx-c-ent-box').style.display = t==='subsidiado' ? 'none' : '';
+  el('cx-c-n-box').style.display = t==='parcelado' ? '' : 'none';
+  el('cx-c-venc-l').textContent = t==='parcelado' ? 'Data da 1.ª parcela' : 'Pagar até';
+  cxRecalc();
+}
+/* o que o Caixa vai fazer com este documento */
+function espContexto(vp){
+  const inv = cxSt.inv;
+  if(inv.estado==='Pendente' && inv.autEstado==='Autorizada' && inv.aut) return {aut:inv.aut, vpPag:Number(inv.aut.entrada)||0};
+  if(inv.estado==='Pendente' && (inv.autEstado==='Pedida'||inv.autEstado==='AutorizadaAdmin')) return {bloqueado:true, vpPag:0};
+  const s = el('cx-cond'); if(s && s.value!=='normal' && vp>0) return {pedir:s.value, vpPag:0};
+  return {vpPag:vp};
+}
+function espLerPedido(tipo, vp){
+  const motivo = el('cx-c-motivo').value.trim(); if(!motivo) return {erro:'Indique o motivo do pedido.'};
+  const ent = tipo==='subsidiado' ? 0 : r2(el('cx-c-entrada').value||0);
+  if(ent<0 || ent>=vp) return {erro:'A entrada tem de ser inferior ao valor a pagar.'};
+  const resto = r2(vp-ent), venc = el('cx-c-venc').value; if(tipo!=='subsidiado' && !venc) return {erro:'Indique a data.'};
+  let parcelas = [];
+  if(tipo==='credito') parcelas = [{n:1, valor:resto, venc, paga:false}];
+  if(tipo==='parcelado'){ const n = Math.round(Number(el('cx-c-n').value)||0); if(n<2||n>12) return {erro:'Nº de parcelas entre 2 e 12.'}; parcelas = planoParcelas(resto, n, venc); }
+  return {aut:{tipo, motivo, parceiro: tipo==='subsidiado' ? el('cx-c-parceiro').value.trim() : '', entrada:ent, valorAutorizado:vp, parcelas, pedidoPor:currentUser.nome, pedidoPorId:currentUser.id, pedidoEm:new Date().toISOString()}};
+}
+async function espPedir(inv, aut){
+  await Store.setDoc('invoices', inv.id, {aut, autEstado:'Pedida', autRecusa:''});
+  audit('autorizacao_pedida','Pagamento especial', inv.pacienteNome||'', `${ESP_TIPOS[aut.tipo]} · ${fmtMZN(aut.valorAutorizado)} · ${aut.motivo}`);
+  toast('✅ Pedido enviado ao Administrador e ao Director. Volte ao Caixa depois de autorizado.', 6000);
+}
+async function espCancelar(id){
+  const inv = invoices.find(x=>x.id===id); if(!inv || !['Pedida','AutorizadaAdmin'].includes(inv.autEstado)) return;
+  await Store.setDoc('invoices', id, {autEstado:'Cancelada'}); audit('autorizacao_cancelada','Pagamento especial', inv.pacienteNome||'', ''); toast('Pedido cancelado.'); closeModal('modal-pagamento');
+}
+/* ---- autorizações (Administrador → Director) ---- */
+const autPendentes = ()=> invoices.filter(i=>i.estado==='Pendente' && ((i.autEstado==='Pedida' && (ehAdminClinica()||ehDirector())) || (i.autEstado==='AutorizadaAdmin' && ehDirector())));
+function autBadge(){
+  const n = (currentUser && currentUser.role==='admin') ? autPendentes().length : 0;
+  document.querySelectorAll('.sb-item[data-view="autorizacoes"]').forEach(b=>{ b.querySelectorAll('.tr-badge').forEach(x=>x.remove()); if(n) b.insertAdjacentHTML('beforeend', ` <span class="tag red tr-badge" style="margin-left:6px;">${n}</span>`); });
+}
+function viewAutorizacoes(){
+  const todos = invoices.filter(i=>i.aut && i.autEstado).sort((a,b)=>(b.aut.pedidoEm||'').localeCompare(a.aut.pedidoEm||'')).slice(0,60), pend = autPendentes();
+  const linha = (i, acoes)=>{ const a = i.aut; return `<tr><td class="cell-name">${esc(i.pacienteNome||'—')}<div class="cell-sub">NID ${esc(i.pacienteNid||'')} · ${esc(i.servico||'')}</div></td><td><span class="tag ${a.tipo==='subsidiado'?'green':'amber'}">${ESP_TIPOS[a.tipo]}</span></td>
+    <td><b>${fmtMZN(a.valorAutorizado)}</b>${a.tipo!=='subsidiado'?`<div class="cell-sub">entrada ${fmtMZN(a.entrada)} · ${a.parcelas.length} parcela(s)</div>`:''}</td>
+    <td class="cell-sub">${esc(a.motivo||'')}${a.parceiro?'<br>Parceiro: '+esc(a.parceiro):''}<br>Pedido por ${esc(a.pedidoPor||'')} · ${a.pedidoEm?new Date(a.pedidoEm).toLocaleString('pt-PT'):''}</td>
+    <td class="cell-sub">${a.adminPor?'Autorizou: '+esc(a.adminPor)+'<br>':''}${a.dirPor?'Visto: '+esc(a.dirPor):''}<div>${esc(autEstadoTxt(i.autEstado)||i.autEstado)}${i.autRecusa?': '+esc(i.autRecusa):''}</div></td><td>${acoes}</td></tr>`; };
+  const ids = new Set(pend.map(i=>i.id));
+  return `<div class="page-head"><div><h1>Autorizações de pagamento especial</h1><div class="desc">Subsidiados, créditos e pagamentos parcelados. O Administrador autoriza e o Director dá o visto — só depois a Recepção emite o documento.</div></div></div>
+  <div class="card" style="margin-bottom:14px;"><h3>Por decidir (${pend.length})</h3><div class="table-wrap"><table><thead><tr><th>Paciente</th><th>Tipo</th><th>Valor</th><th>Motivo</th><th>Estado</th><th></th></tr></thead><tbody>
+  ${pend.map(i=>linha(i, i.autEstado==='Pedida' ? (ehDirector()?`<button class="btn sm solid" onclick="autDecidir('${i.id}','ok')">Autorizar e visar</button> `:`<button class="btn sm solid" onclick="autDecidir('${i.id}','ok')">Autorizar</button> `)+`<button class="btn sm" onclick="autDecidir('${i.id}','no')">Recusar</button>`
+     : `<button class="btn sm solid" onclick="autDecidir('${i.id}','ok')">Dar visto</button> <button class="btn sm" onclick="autDecidir('${i.id}','no')">Recusar</button>`)).join('') || `<tr><td colspan="6"><div class="empty">Nada por decidir.</div></td></tr>`}</tbody></table></div></div>
+  <div class="card"><h3>Histórico</h3><div class="table-wrap"><table><thead><tr><th>Paciente</th><th>Tipo</th><th>Valor</th><th>Motivo</th><th>Estado</th><th></th></tr></thead><tbody>
+  ${todos.filter(i=>!ids.has(i.id)).map(i=>linha(i,'')).join('') || `<tr><td colspan="6"><div class="empty">Sem registos.</div></td></tr>`}</tbody></table></div></div>`;
+}
+async function autDecidir(id, d){
+  const inv = invoices.find(x=>x.id===id); if(!inv || !inv.aut || currentUser.role!=='admin') return;
+  const dir = ehDirector(), est = inv.autEstado;
+  if(est==='Pedida' && !(dir||ehAdminClinica())) return;
+  if(est==='AutorizadaAdmin' && !dir) return;
+  if(d==='no'){
+    gmodal('Recusar pedido — '+(inv.pacienteNome||''), [{id:'m', label:'Motivo da recusa *'}], 'Recusar', async v=>{
+      if(!v.m.trim()){ toast('⚠️ Indique o motivo.'); return false; }
+      try{ await Store.claim('invoices', id, 'autEstado', est, 'Recusada'); }catch(e){ toast('⚠️ Este pedido já foi decidido.'); return; }
+      await Store.setDoc('invoices', id, {autRecusa:v.m.trim(), aut:{...inv.aut, recusadoPor:currentUser.nome, recusadoEm:new Date().toISOString()}});
+      audit('autorizacao_recusada','Pagamento especial', inv.pacienteNome||'', v.m.trim()); toast('Pedido recusado.');
+    }); return;
+  }
+  const agora = new Date().toISOString(), a = {...inv.aut};
+  let novo;
+  if(est==='Pedida'){ a.adminPor = currentUser.nome; a.adminEm = agora; if(dir){ a.dirPor = currentUser.nome; a.dirEm = agora; novo = 'Autorizada'; } else novo = 'AutorizadaAdmin'; }
+  else { a.dirPor = currentUser.nome; a.dirEm = agora; novo = 'Autorizada'; }
+  try{ await Store.claim('invoices', id, 'autEstado', est, novo); }catch(e){ toast('⚠️ Este pedido já foi decidido.'); return; }
+  await Store.setDoc('invoices', id, {aut:a});
+  audit(novo==='Autorizada'?'autorizacao_visada':'autorizacao_admin','Pagamento especial', inv.pacienteNome||'', `${ESP_TIPOS[a.tipo]} · ${fmtMZN(a.valorAutorizado)}`);
+  toast(novo==='Autorizada' ? '✅ Autorizado e visado. A Recepção já pode emitir o documento.' : '✅ Autorizado. Segue para o visto do Director.');
+}
+/* ---- documento: linhas do pagamento especial ---- */
+function htmlEspecial(i){
+  const e = i.especial; if(!e) return '';
+  const linhas = [`<div><span>${ESP_TIPOS[e.tipo]}${e.tipo==='subsidiado'&&e.parceiro?' — parceiro '+esc(e.parceiro):''}</span><b>${fmtMZN(e.valorDiferido)}</b></div>`];
+  if(e.tipo!=='subsidiado') (e.parcelas||[]).forEach(p=>linhas.push(`<div><span>Parcela ${p.n} — vence ${fmtDate(p.venc)}</span><b>${fmtMZN(p.valor)}</b></div>`));
+  return `<div class="doc-totais" style="margin-top:8px;"><div style="font-weight:700;"><span>Pagamento especial autorizado</span><b></b></div>${linhas.join('')}<div style="font-size:10.5px;"><span>Autorizado por ${esc(e.adminPor||'')} · visto ${esc(e.dirPor||'')}</span><b></b></div></div>`;
+}
+/* ---- créditos, parcelas e subsidiados ---- */
+const espSaldo = i => i.especial && i.especial.tipo!=='subsidiado' ? r2((i.especial.parcelas||[]).filter(p=>!p.paga).reduce((t,p)=>t+p.valor,0)) : 0;
+function viewSubsidios(){
+  const sub = invoices.filter(i=>i.estado==='Pago' && i.especial && i.especial.tipo==='subsidiado').sort((a,b)=>(b.pagoEm||'').localeCompare(a.pagoEm||''));
+  const pl = invoices.filter(i=>i.estado==='Pago' && i.especial && i.especial.tipo!=='subsidiado').sort((a,b)=>(b.pagoEm||'').localeCompare(a.pagoEm||''));
+  const hoje = todayStr(), totSub = sub.reduce((t,i)=>t+i.especial.valorDiferido,0), totAberto = pl.reduce((t,i)=>t+espSaldo(i),0);
+  return `<div class="page-head"><div><h1>Subsidiados, créditos e parcelas</h1><div class="desc">Pagamentos especiais autorizados pelo Administrador e visados pelo Director</div></div></div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;"><div class="price-chip">Subsidiado (total): ${fmtMZN(totSub)}</div><div class="price-chip" style="background:var(--warn-tint);">A receber (créditos e parcelas): ${fmtMZN(totAberto)}</div></div>
+  <div class="card" style="margin-bottom:14px;"><h3>Créditos e parcelas</h3><div class="table-wrap"><table><thead><tr><th>Documento / paciente</th><th>Tipo</th><th>Parcelas</th><th>Em aberto</th></tr></thead><tbody>
+  ${pl.map(i=>`<tr><td class="cell-name">${esc(i.numero)}<div class="cell-sub">${esc(i.pacienteNome||'')} · ${esc(i.servico||'')}</div></td><td><span class="tag amber">${ESP_TIPOS[i.especial.tipo]}</span></td>
+    <td>${i.especial.parcelas.map(p=>`<div style="font-size:12.5px;margin:3px 0;">${p.n}. ${fmtDate(p.venc)} · ${fmtMZN(p.valor)} ${p.paga?`<span class="tag green">paga ${fmtDate(p.pagaEm)}</span>`:`<span class="tag ${p.venc<hoje?'red':'grey'}">${p.venc<hoje?'em atraso':'por pagar'}</span> <button class="btn sm solid" onclick="espReceber('${i.id}',${p.n})">Receber</button>`}</div>`).join('')}</td><td><b>${fmtMZN(espSaldo(i))}</b></td></tr>`).join('') || `<tr><td colspan="4"><div class="empty">Sem créditos ou parcelas.</div></td></tr>`}</tbody></table></div></div>
+  <div class="card"><h3>Subsidiados</h3><div class="table-wrap"><table><thead><tr><th>Data</th><th>Documento / paciente</th><th>Parceiro / motivo</th><th>Autorizou · Visto</th><th>Valor</th></tr></thead><tbody>
+  ${sub.map(i=>`<tr><td class="cell-sub">${fmtDate(diaDe(i))}</td><td class="cell-name">${esc(i.numero)}<div class="cell-sub">${esc(i.pacienteNome||'')} · ${esc(i.servico||'')}</div></td><td class="cell-sub">${esc(i.especial.parceiro||'')}<br>${esc(i.especial.motivo||'')}</td><td class="cell-sub">${esc(i.especial.adminPor||'')} · ${esc(i.especial.dirPor||'')}</td><td><b>${fmtMZN(i.especial.valorDiferido)}</b></td></tr>`).join('') || `<tr><td colspan="5"><div class="empty">Sem subsidiados.</div></td></tr>`}</tbody></table></div></div>`;
+}
+function espReceber(id, n){
+  if(!ehRecepcao()) return;
+  const i = invoices.find(x=>x.id===id), p = i && i.especial && i.especial.parcelas.find(x=>x.n===n); if(!p || p.paga) return;
+  gmodal(`Receber parcela ${n} — ${i.pacienteNome||''} (${fmtMZN(p.valor)})`, [{id:'f', label:'Forma de pagamento', type:'select', opts:FORMAS_PAG}, {id:'r', label:'Referência (opcional)'}], 'Receber e imprimir recibo', async v=>{
+    const rid = 'rp_'+id+'_'+n, numero = await docSeq('RP'), agora = new Date().toISOString();
+    try{ await Store.createOnce('recebimentosPlano', rid, {numero, invoiceId:id, invoiceNumero:i.numero, pacienteNid:i.pacienteNid||'', pacienteNome:i.pacienteNome||'', parcela:n, valor:p.valor, pagamentos:[{metodo:v.f, valor:p.valor, ref:v.r.trim()}], pagoEm:agora, pagoPor:currentUser.nome}); }
+    catch(e){ toast('⚠️ Esta parcela já foi recebida.'); return; }
+    const parcelas = i.especial.parcelas.map(x=>x.n===n ? {...x, paga:true, pagaEm:agora.slice(0,10), recibo:numero} : x);
+    await Store.setDoc('invoices', id, {especial:{...i.especial, parcelas}});
+    audit('parcela_recebida','Parcela', i.numero, `${n} · ${fmtMZN(p.valor)} · ${v.f}`); toast('✅ Parcela recebida.');
+    printDoc(`<div class="doc">${docHeader('Recibo de parcela', numero)}<div style="margin:10px 0;font-size:13px;">Paciente: <b>${esc(i.pacienteNome||'')}</b> (NID ${esc(i.pacienteNid||'')})<br>Documento: ${esc(i.numero)} · ${esc(i.servico||'')}<br>Parcela ${n} de ${i.especial.parcelas.length}</div><div class="doc-totais"><div><span>Pago por ${esc(v.f)}</span><b>${fmtMZN(p.valor)}</b></div><div><span>Saldo em aberto</span><b>${fmtMZN(espSaldo({especial:{tipo:'x',parcelas}}))}</b></div></div>${docFooter(currentUser.nome)}</div>`);
+  });
+}
+/* ---- recibos de parcelas entram no caixa e nos relatórios ---- */
+const planoRecebidoDesde = d => recebimentosPlano.filter(r=>(r.pagoEm||'')>d);
+function subsDesde(d){ return invoices.filter(i=>i.estado==='Pago' && i.especial && (i.pagoEm||i.emitidaEm||'')>d).map(i=>({doc:i.numero, paciente:i.pacienteNome||'', tipo:ESP_TIPOS[i.especial.tipo], valor:i.especial.valorDiferido, autorizou:i.especial.adminPor||'', visto:i.especial.dirPor||''})); }
+const subsHtml = (arr, comMargem)=> `<h4 style="margin:${comMargem?'12px':'6px'} 0;">Subsidiados, créditos e parcelados (${arr.length})</h4>${arr.length?arr.map(s=>`<div style="font-size:13px;margin:3px 0;">${esc(s.tipo)} · <b>${esc(s.paciente)}</b> · ${esc(s.doc)} · ${fmtMZN(s.valor)} <span class="cell-sub">(aut. ${esc(s.autorizou)} · visto ${esc(s.visto)})</span></div>`).join(''):'<div class="cell-sub">Nenhum neste turno.</div>'}`;
 
 /* ================= MODELOS POR ESPECIALIDADE (Oftalmologia, Relatório médico, Aconselhamento) ================= */
 let receitasOculos = [], relatoriosMedicos = [], consentimentos = [];
@@ -2348,7 +2504,7 @@ function receitaOculosImprimir(id, rec){
   const r = rec || receitasOculos.find(x=>x.id===id); if(!r || !canSeePatient(r.pacienteNid)) return; const v = r.v||{};
   const tb = (tit, a, b) => `<tr><th style="background:#999;color:#fff;">${tit}</th><th style="background:#999;color:#fff;">Esférico</th><th style="background:#999;color:#fff;">Cilíndrico</th><th style="background:#999;color:#fff;">Eixo</th><th style="background:#999;color:#fff;">Distância Pupilar</th></tr>
     <tr><td><b>Olho Direito</b></td>${['esf','cil','eixo','dp'].map(k=>`<td style="height:26px;text-align:center;">${esc(v[a+'_'+k]||'')}</td>`).join('')}</tr><tr><td><b>Olho Esquerdo</b></td>${['esf','cil','eixo','dp'].map(k=>`<td style="height:26px;text-align:center;">${esc(v[b+'_'+k]||'')}</td>`).join('')}</tr>`;
-  printDoc(`<div class="doc" style="font-size:12px;">${docHeader('Receita de Óculos', r.numero||'', r.data)}
+  printDoc(`<div class="doc" data-fmt="a5" style="font-size:12px;">${docHeader('Receita de Óculos', r.numero||'', r.data)}
     <div style="display:flex;justify-content:space-between;gap:12px;"><div>${clinicaBloco()}</div><div style="border:1.5px solid #666;padding:6px 10px;min-width:120px;"><b>NID:</b> ${esc(r.pacienteNid)}<hr style="margin:4px 0;"><b>IDADE:</b> ${esc(r.idade||'')}</div></div>
     <div style="margin:8px 0;">Para Sr(a): <b>${esc(r.pacienteNome)}</b></div>
     <div style="text-align:center;font-weight:700;font-size:14px;">Prescrição de Óculos</div>
@@ -2540,6 +2696,8 @@ const MENU = [
   ]},
   {sec:"Caixa e finanças", items:[
     {id:"caixa", label:"Caixa", icon:"💵", roles:["admin","recepcao","financeiro"]},
+    {id:"autorizacoes", label:"Autorizações", icon:"✅", roles:["admin"]},
+    {id:"subsidios", label:"Subsidiados e créditos", icon:"🤝", roles:["admin","recepcao","financeiro"]},
     {id:"turnorec", label:"Entrega de turno (Recepção)", icon:"🔁", roles:["admin","recepcao","financeiro"]},
     {id:"documentos", label:"Facturas e VD", icon:"🧾", roles:["admin","recepcao","financeiro"]},
     {id:"financeiro", label:"Financeiro", icon:"💰", roles:["admin","financeiro"]},
@@ -2744,7 +2902,8 @@ function bootApp(){
   Store.listen('patients', arr=>{ patients = arr.sort((a,b)=>(parseInt(a.nid||a.id)||0)-(parseInt(b.nid||b.id)||0)); if(currentUser) render(); });
   Store.listen('appointments', arr=>{ appointments = arr; if(currentUser) render(); });
   Store.listen('queue', arr=>{ queue = arr; if(currentUser) render(); });
-  Store.listen('invoices', arr=>{ invoices = arr; if(currentUser) render(); });
+  Store.listen('invoices', arr=>{ invoices = arr; autBadge(); if(currentUser) render(); });
+  Store.listen('recebimentosPlano', arr=>{ recebimentosPlano = arr; if(currentUser && ['turnorec','subsidios','financeiro'].includes(currentView)) render(); });
   Store.listen('prontuarios', arr=>{ prontuarios = arr; if(currentUser) render(); });
   Store.listen('receitas', arr=>{ receitas = arr; if(currentUser){ render(); rxAvisarMedico(); } });
   Store.listen('medicamentos', arr=>{ medicamentos = arr.sort((a,b)=>(a.nome||'').localeCompare(b.nome||'')); if(currentUser) render(); });
@@ -3177,6 +3336,8 @@ function render(){
     case "internamentos": c.innerHTML = viewInternamentos(); break;
     case "internado": c.innerHTML = viewInternado(); break;
     case "passagem": c.innerHTML = viewPassagem(); break;
+    case "autorizacoes": c.innerHTML = viewAutorizacoes(); break;
+    case "subsidios": c.innerHTML = viewSubsidios(); break;
     case "turnorec": c.innerHTML = viewTurnoRecepcao(); break;
     case "empresas": c.innerHTML = viewEntidades("empresa"); break;
     case "seguradoras": c.innerHTML = viewEntidades("seguradora"); break;
@@ -3695,7 +3856,8 @@ function pagsDe(i){
   const v = valorPacienteDe(i.valorPaciente!==undefined ? i : {valor:i.total!==undefined?i.total:i.valor});
   return v>0 && i.metodo && i.metodo!=='Conta a crédito' ? [{metodo:i.metodo, valor:v, ref:i.refPagamento||''}] : [];
 }
-function htmlPagamentos(i){
+function htmlPagamentos(i){ return htmlPagamentos0(i) + htmlEspecial(i); }
+function htmlPagamentos0(i){
   const ps = pagsDe(i);
   if(!ps.length) return i.metodo ? `<div style="font-size:12px;margin-top:8px;">Método de pagamento: <b>${esc(i.metodo)}</b></div>` : '';
   if(ps.length===1) return `<div style="font-size:12px;margin-top:8px;">Método de pagamento: <b>${esc(ps[0].metodo)}</b>${ps[0].ref?' · Ref. '+esc(ps[0].ref):''}</div>`;
@@ -3721,7 +3883,7 @@ function viewCaixa(){
           return `<tr><td class="cell-name">${esc(i.pacienteNome||'—')}<div class="cell-sub">NID ${esc(i.pacienteNid||'—')}</div></td>
           <td><span class="tag ${i.tipo==='Consulta'?'blue':'grey'}">${esc(i.tipo||'')}</span> ${esc(i.servico)}</td>
           <td>${pg.tipo==='individual' ? '<span class="tag grey">Comum</span>' : `<span class="tag ${pg.tipo==='empresa'?'blue':'amber'}">${pg.tipo==='empresa'?'🏢':'🛡'} ${esc(pg.entidadeNome)}${pg.planoNome?' · '+esc(pg.planoNome):''}</span>`}</td>
-          <td><b>${fmtMZN(vp)}</b></td><td>${ve>0?fmtMZN(ve):'—'}</td>
+          <td><b>${fmtMZN(vp)}</b>${autActiva(i)&&i.aut?`<div class="cell-sub"><span class="tag ${i.autEstado==='Autorizada'?'green':'amber'}">${ESP_TIPOS[i.aut.tipo]}: ${esc(autEstadoTxt(i.autEstado))}</span></div>`:''}</td><td>${ve>0?fmtMZN(ve):'—'}</td>
           <td><button class="btn sm solid" onclick="openPagamento('${i.id}')">${ve>0?'Emitir factura':'Receber (VD)'}</button></td></tr>`; }).join("") || `<tr><td colspan="6"><div class="empty">Nada por confirmar.</div></td></tr>`}</tbody>
       </table></div>
     </div>
@@ -3837,6 +3999,8 @@ function cxRecalc(){
   if(!c.ok) c = {valor:Number(inv.valor)||0, precoReferencia:inv.precoReferencia, valorEntidade:Number(inv.valorEntidade)||0, valorPaciente:valorPacienteDe(inv), itens:inv.itens, avisos:[]};
   cxSt.pg = pg; cxSt.c = c;
   const ve = c.valorEntidade, vp = c.valorPaciente;
+  espRender();
+  const E0 = espContexto(vp), vpw = E0.vpPag;
   el('cx-resumo').innerHTML = `${pg.tipo!=='individual' ? `<div class="muted-note" style="margin-bottom:10px;">${pg.requisicao?'Requisição nº <b>'+esc(pg.requisicao)+'</b> · ':''}${pg.cartao?'Cartão / apólice <b>'+esc(pg.cartao)+'</b> · ':''}${pg.autorizacao?'Autorização <b>'+esc(pg.autorizacao)+'</b> · ':''}${esc(pagLabel(pg))} · comparticipação ${pg.comparticipacao}%</div>` : ''}
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
       <div class="price-chip">Total: ${fmtMZN(c.valor)}</div>
@@ -3845,13 +4009,13 @@ function cxRecalc(){
     </div>
     ${(c.avisos||[]).map(a=>`<div class="muted-note" style="margin-bottom:6px;border-color:var(--danger-tint);background:var(--danger-tint);color:var(--danger);">⚠ ${esc(a)}</div>`).join('')}`;
   const w = el('cx-pm-wrap');
-  if(cxSt.vp!==vp || !w.innerHTML){
-    cxSt.vp = vp;
-    w.innerHTML = vp>0 ? `<div class="field"><label>${ve>0?'Parte do paciente — forma(s) de pagamento':'Numerário / POS / Carteira móvel (pode dividir)'}</label>${pmHtml('pg-pm')}</div>`
-      : `<div class="muted-note">O paciente não paga neste momento. Será emitida a factura em duplicado para o paciente assinar, e fica a cobrar à entidade no fim do mês.</div>`;
-    if(vp>0) pmInit('pg-pm', vp);
+  if(cxSt.vp!==vpw || cxSt.esp!==(E0.pedir||E0.bloqueado||(E0.aut&&E0.aut.tipo)||'') || !w.innerHTML){
+    cxSt.vp = vpw; cxSt.esp = (E0.pedir||E0.bloqueado||(E0.aut&&E0.aut.tipo)||'');
+    w.innerHTML = vpw>0 ? `<div class="field"><label>${ve>0?'Parte do paciente — forma(s) de pagamento':'Numerário / POS / Carteira móvel (pode dividir)'}</label>${pmHtml('pg-pm')}</div>`
+      : ((E0.pedir||E0.bloqueado||E0.aut) ? `<div class="muted-note">Nada a receber agora neste documento.</div>` : `<div class="muted-note">O paciente não paga neste momento. Será emitida a factura em duplicado para o paciente assinar, e fica a cobrar à entidade no fim do mês.</div>`);
+    if(vpw>0) pmInit('pg-pm', vpw);
   }
-  el('pagamento-confirm').textContent = ve>0 ? 'Emitir factura em duplicado' : 'Confirmar pagamento e emitir VD';
+  el('pagamento-confirm').textContent = E0.pedir ? 'Pedir autorização' : E0.bloqueado ? 'Aguarda autorização' : E0.aut ? 'Emitir documento autorizado' : ve>0 ? 'Emitir factura em duplicado' : 'Confirmar pagamento e emitir VD';
 }
 function openPagamento(invId){
   if(!ehRecepcao()) return;   // a recepção (Caixa) emite os documentos
@@ -3865,6 +4029,7 @@ function openPagamento(invId){
     ${podeMudar ? cxPagadorHtml() : ''}
     <div id="cx-resumo"></div>
     ${compCaixaHtml(inv)}
+    ${espBlocoHtml(inv)}
     <div id="cx-pm-wrap"></div>`;
   if(podeMudar) cxTipo(pg0.tipo, pg0); else cxRecalc();
   el('pagamento-confirm').onclick = async ()=>{
@@ -3874,8 +4039,14 @@ function openPagamento(invId){
       pg = pr.pagador; c = cxCalcular(inv, pg);
     }
     const ve = c.valorEntidade, vp = c.valorPaciente;
-    const pm = vp>0 ? pmLer('pg-pm', vp) : {pagamentos:[], metodo:'Conta a crédito', refPagamento:''};
-    if(pm.erro){ toast('⚠️ '+pm.erro); return; }
+    const E = espContexto(vp);
+    if(E.bloqueado){ toast('⚠️ Aguarda a autorização do Administrador e o visto do Director.'); return; }
+    if(E.pedir){ const q = espLerPedido(E.pedir, vp); if(q.erro){ toast('⚠️ '+q.erro); return; } await espPedir(inv, q.aut); closeModal('modal-pagamento'); return; }
+    if(E.aut && Math.abs(vp-E.aut.valorAutorizado)>0.004){ toast('⚠️ O valor mudou desde a autorização — peça nova autorização.'); return; }
+    const vpPag = E.vpPag;
+    const pm0 = vpPag>0 ? pmLer('pg-pm', vpPag) : {pagamentos:[], metodo:'Conta a crédito', refPagamento:''};
+    if(pm0.erro){ toast('⚠️ '+pm0.erro); return; }
+    const pm = E.aut ? {...pm0, metodo:(pm0.pagamentos.length?pm0.metodo+' + ':'')+ESP_TIPOS[E.aut.tipo]} : pm0;
     const metodo = pm.metodo, refPag = pm.refPagamento;
     try{ await Store.claim('invoices', inv.id, 'estado', 'Pendente', 'Pago'); }
     catch(e){ closeModal('modal-pagamento'); toast("⚠️ Este documento já foi emitido ou anulado (talvez noutro posto de caixa)."); return; }
@@ -3888,12 +4059,12 @@ function openPagamento(invId){
     const tipoDoc = ve>0 ? 'Factura' : 'VD';
     const agora = new Date().toISOString();
     const upd = {numero: await docSeq(tipoDoc==='VD'?'VD':'FT'), tipoDoc, estado:'Pago', metodo, pagamentos:pm.pagamentos, refPagamento:refPag, pagoEm:agora, pagoPor:currentUser.nome,
-      emitidaEm:agora, emitidaPor:currentUser.nome, valorPaciente:vp, valorEntidade:ve, estadoEntidade: ve>0 ? 'Pendente' : '', pagador:pg,
+      emitidaEm:agora, emitidaPor:currentUser.nome, valorPaciente:vpPag, valorEntidade:ve, ...(E.aut ? {especial:{tipo:E.aut.tipo, motivo:E.aut.motivo, parceiro:E.aut.parceiro||'', valorDiferido:r2(vp-vpPag), entrada:vpPag, parcelas:E.aut.parcelas, adminPor:E.aut.adminPor, dirPor:E.aut.dirPor, pedidoPor:E.aut.pedidoPor}} : {}), estadoEntidade: ve>0 ? 'Pendente' : '', pagador:pg,
       ...(mudou ? {valor:c.valor, itens:c.itens, ...(c.precoReferencia!==undefined ? {precoReferencia:c.precoReferencia} : {}), pagadorAlteradoNoCaixa:true} : {})};
     await Store.setDoc('invoices', inv.id, upd);
     if(inv.apptId){
       const a = appointments.find(x=>x.id===inv.apptId);
-      if(a && a.estado==='Aguarda pagamento') await Store.setDoc('appointments', a.id, {estado:"Confirmada", estadoPagamento: vp>0 ? "Pago" : "A crédito",
+      if(a && a.estado==='Aguarda pagamento') await Store.setDoc('appointments', a.id, {estado:"Confirmada", estadoPagamento: E.aut ? ESP_TIPOS[E.aut.tipo] : (vp>0 ? "Pago" : "A crédito"),
         ...(mudou ? {pagador:pg, preco:c.valor, valorEntidade:ve, valorPaciente:vp, ...(c.precoReferencia!==undefined ? {precoReferencia:c.precoReferencia} : {})} : {})});
     }
     if(inv.ordemId){   // tratamento ou exames: a confirmação no Caixa liberta a execução
@@ -4554,7 +4725,7 @@ async function issueRx(){
   printDoc(renderRxDoc({numero, pacienteNome:p.nome, itens, instrucoes:document.getElementById('rx-instr').value, medicoNome:currentUser.nome}));
 }
 function renderRxDoc(r){
-  return `<div class="doc">
+  return `<div class="doc" data-fmt="a5">
     ${docHeader("Receita Médica", r.numero)}
     <div class="doc-section"><div class="lab">Paciente</div><div style="font-size:13.5px;"><b>${esc(r.pacienteNome)}</b></div></div>
     <div class="doc-section"><div class="lab">Medicação prescrita</div>
@@ -5515,13 +5686,15 @@ function relatorioFin(per){
   const inv = invoices.filter(i=>i.estado==='Pago' && i.numero && dentro(diaDe(i)));
   const porTipo = {}, porMetodo = {};
   inv.forEach(i=>{ const v = valorPacienteDe(i); porTipo[i.tipo] = (porTipo[i.tipo]||0) + v; pagsDe(i).forEach(x=>{ porMetodo[x.metodo] = r2((porMetodo[x.metodo]||0) + x.valor); }); });
+  recebimentosPlano.filter(r=>dentro((r.pagoEm||'').slice(0,10))).forEach(r=>{ r.pagamentos.forEach(x=>{ porMetodo[x.metodo] = r2((porMetodo[x.metodo]||0)+x.valor); }); porTipo['Parcelas recebidas'] = (porTipo['Parcelas recebidas']||0) + r.valor; });
+  const espDoc = inv.filter(i=>i.especial), espSub = r2(espDoc.filter(i=>i.especial.tipo==='subsidiado').reduce((t,i)=>t+i.especial.valorDiferido,0)), espCred = r2(espDoc.filter(i=>i.especial.tipo!=='subsidiado').reduce((t,i)=>t+i.especial.valorDiferido,0));
   const factEnt = inv.reduce((t,i)=>t+(Number(i.valorEntidade)||0),0);
   const recEnt = recebimentos.filter(r=>dentro((r.data||'').slice(0,10))).reduce((t,r)=>t+(Number(r.valor)||0),0);
   const desp = despesas.filter(d=>despPaga(d) && dentro(d.data||'')), porCat = {};
   desp.forEach(d=>{ const c = d.categoria||'Outras'; const o = porCat[c] = porCat[c] || {base:0, iva:0, total:0}; o.base += Number(d.base!==undefined?d.base:d.valor)||0; o.iva += Number(d.ivaValor)||0; o.total += despTotal(d); });
   const recPac = Object.values(porTipo).reduce((t,v)=>t+v,0), totDesp = desp.reduce((t,d)=>t+despTotal(d),0);
   return {pd, porTipo, porMetodo, recPac, factEnt, recEnt, porCat, totDesp, ivaDesp: desp.reduce((t,d)=>t+(Number(d.ivaValor)||0),0), resultado: r2(recPac+recEnt-totDesp),
-    aberto: invoices.reduce((t,i)=>t+porCobrar(i),0), aPagar: despesas.filter(d=>d.estado==='Pendente').reduce((t,d)=>t+despTotal(d),0)};
+    espSub, espCred, espN:espDoc.length, espAberto:r2(invoices.reduce((t,i)=>t+espSaldo(i),0)), aberto: invoices.reduce((t,i)=>t+porCobrar(i),0), aPagar: despesas.filter(d=>d.estado==='Pendente').reduce((t,d)=>t+despTotal(d),0)};
 }
 function faturacaoPorEntidade(pd){
   const m = {};
@@ -5533,6 +5706,7 @@ function relatorioHtml(r){
   const linhas = o => Object.entries(o).map(([k,v])=>`<div><span>${esc(k)}</span><b>${fmtMZN(v)}</b></div>`).join('') || '<div><span>—</span><b>—</b></div>';
   return `<div class="doc-totais" style="width:100%;margin:0 0 12px;"><div style="font-weight:700;"><span>Receitas recebidas de pacientes</span><b>${fmtMZN(r.recPac)}</b></div>${linhas(r.porTipo)}</div>
     <div class="doc-totais" style="width:100%;margin:0 0 12px;"><div style="font-weight:700;"><span>Por método de pagamento</span><b></b></div>${linhas(r.porMetodo)}</div>
+    <div class="doc-totais" style="width:100%;margin:0 0 12px;"><div style="font-weight:700;"><span>Subsidiados, créditos e parcelados (${r.espN} documento(s))</span><b></b></div><div><span>Subsidiado (não cobrado)</span><b>${fmtMZN(r.espSub)}</b></div><div><span>Concedido a crédito / parcelado</span><b>${fmtMZN(r.espCred)}</b></div><div><span>Créditos e parcelas em aberto (total)</span><b>${fmtMZN(r.espAberto)}</b></div></div>
     <div class="doc-totais" style="width:100%;margin:0 0 12px;"><div style="font-weight:700;"><span>Empresas e seguradoras</span><b></b></div><div><span>Facturado no período</span><b>${fmtMZN(r.factEnt)}</b></div><div><span>Recebido no período</span><b>${fmtMZN(r.recEnt)}</b></div><div><span>Total em aberto (a cobrar)</span><b>${fmtMZN(r.aberto)}</b></div></div>
     <div class="doc-totais" style="width:100%;margin:0 0 12px;"><div style="font-weight:700;"><span>Mapa de facturação por entidade (facturado no período)</span><b></b></div>${peHtml || '<div><span>—</span><b>—</b></div>'}</div>
     <div class="doc-totais" style="width:100%;margin:0 0 12px;"><div style="font-weight:700;"><span>Despesas pagas (base + IVA = total)</span><b>${fmtMZN(r.totDesp)}</b></div>${Object.entries(r.porCat).map(([k,o])=>`<div><span>${esc(k)} <small>(IVA ${fmtMZN(o.iva)})</small></span><b>${fmtMZN(o.total)}</b></div>`).join('') || '<div><span>—</span><b>—</b></div>'}<div><span>IVA suportado nas despesas</span><b>${fmtMZN(r.ivaDesp)}</b></div><div><span>Contas a pagar em aberto</span><b>${fmtMZN(r.aPagar)}</b></div></div>
@@ -6876,7 +7050,7 @@ async function resetSistema(){
   if(!confirm("ATENÇÃO: isto vai apagar PERMANENTEMENTE todos os dados do sistema — pacientes, consultas, facturas, receitas, stock, vendas, despesas, funcionários, especialidades e utilizadores. Esta ação não pode ser desfeita. Continuar?")) return;
   const confirmText = prompt('Para confirmar, escreva exactamente: APAGAR TUDO');
   if(confirmText !== 'APAGAR TUDO'){ toast("Reset cancelado — texto de confirmação não corresponde."); return; }
-  const collections = ['contadores','patients','appointments','queue','invoices','especialidades','prontuarios','receitas','medicamentos','vendas','despesas','funcionarios','alertas','emails','tratamentos','exames','tratamentosPrescritos','pedidosExame','empresas','seguradoras','camas','internamentos','cardex','administracoes','diarioEnfermagem','sinaisVitais','passagensTurno','turnosRecepcao','receitasOculos','relatoriosMedicos','consentimentos','referenciacoes','beneficiarios','recebimentos','contasInt','tratamentosInt','movimentosStock','planos','internadosAtivos','users','config','requisicoes','transferencias','anexos','presenca','salarios','assiduidade','adiantamentos','feriasPlano','disciplinares','fundoManeio','reconciliacoes','apuramentosIva'];   // 'auditoria' é preservada
+  const collections = ['contadores','patients','appointments','queue','invoices','especialidades','prontuarios','receitas','medicamentos','vendas','despesas','funcionarios','alertas','emails','tratamentos','exames','tratamentosPrescritos','pedidosExame','empresas','seguradoras','camas','internamentos','cardex','administracoes','diarioEnfermagem','sinaisVitais','passagensTurno','turnosRecepcao','receitasOculos','relatoriosMedicos','consentimentos','recebimentosPlano','referenciacoes','beneficiarios','recebimentos','contasInt','tratamentosInt','movimentosStock','planos','internadosAtivos','users','config','requisicoes','transferencias','anexos','presenca','salarios','assiduidade','adiantamentos','feriasPlano','disciplinares','fundoManeio','reconciliacoes','apuramentosIva'];   // 'auditoria' é preservada
   toast("⏳ A apagar todos os dados…", 60000);
   auditSuspended = true;
   try{
@@ -7567,7 +7741,7 @@ function aplicarFiltroAuditoria(){
 
 /* ================= CÓPIA DE SEGURANÇA ================= */
 const BACKUP_COLS = ['contadores','config','users','patients','appointments','queue','invoices','especialidades','prontuarios','receitas','medicamentos','vendas','despesas',
-  'funcionarios','alertas','emails','tratamentos','exames','tratamentosPrescritos','pedidosExame','empresas','seguradoras','camas','internamentos','cardex','administracoes','diarioEnfermagem','sinaisVitais','passagensTurno','turnosRecepcao','receitasOculos','relatoriosMedicos','consentimentos','referenciacoes','beneficiarios','recebimentos','contasInt','tratamentosInt','movimentosStock','planos','internadosAtivos','requisicoes','transferencias','anexos','salarios','assiduidade','adiantamentos','feriasPlano','disciplinares','fundoManeio','reconciliacoes','apuramentosIva','auditoria'];
+  'funcionarios','alertas','emails','tratamentos','exames','tratamentosPrescritos','pedidosExame','empresas','seguradoras','camas','internamentos','cardex','administracoes','diarioEnfermagem','sinaisVitais','passagensTurno','turnosRecepcao','receitasOculos','relatoriosMedicos','consentimentos','recebimentosPlano','referenciacoes','beneficiarios','recebimentos','contasInt','tratamentosInt','movimentosStock','planos','internadosAtivos','requisicoes','transferencias','anexos','salarios','assiduidade','adiantamentos','feriasPlano','disciplinares','fundoManeio','reconciliacoes','apuramentosIva','auditoria'];
 function baixarFicheiro(nome, texto, tipo){
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([texto], {type: tipo||'application/json'}));
@@ -8606,7 +8780,11 @@ function renderOrdemDoc(tipo, o){
     ${docFooter(o.medicoNome)}
   </div>`;
 }
-function printDoc(html){ document.getElementById('print-area').innerHTML = html; setTimeout(()=>window.print(), 150); }
+function printDoc(html){
+  let st = document.getElementById('print-page'); if(!st){ st = document.createElement('style'); st.id = 'print-page'; document.head.appendChild(st); }
+  const a5 = /data-fmt="a5"/.test(html);
+  st.textContent = a5 ? '@page{size:A5 landscape;margin:6mm;} @media print{ #print-area .doc{font-size:10.5px !important;max-width:none;} #print-area .doc-logo{max-height:46px;} #print-area .doc svg{max-width:46%;height:auto;max-height:90px;} }' : '@page{size:A4 portrait;margin:12mm;}';
+  document.getElementById('print-area').innerHTML = html; setTimeout(()=>window.print(), 150); }
 
 /* ================= Init ================= */
 document.addEventListener('keydown', e=>{ if(e.key==='Escape' && !forcedPassChange){ document.querySelectorAll('.modal-bg.active').forEach(m=>m.classList.remove('active')); }});
