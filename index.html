@@ -2276,7 +2276,7 @@ function espRender(){
     return;
   }
   const rec = inv.autEstado==='Recusada' ? `<div class="muted-note" style="background:var(--danger-tint);color:var(--danger);margin-bottom:8px;">Pedido anterior recusado${inv.autRecusa?': '+esc(inv.autRecusa):''}.</div>` : '';
-  box.innerHTML = rec + `<div class="field"><label>Condição de pagamento</label><select id="cx-cond" onchange="espMudou()"><option value="normal">Normal (paga agora)</option>${Object.entries(ESP_TIPOS).map(([k,v])=>`<option value="${k}">${v} (requer autorização)</option>`).join('')}</select></div>
+  box.innerHTML = rec + `<div class="field" style="border:2px solid var(--primary,#1a6b5a);border-radius:10px;padding:8px 10px;"><label><b>Forma de pagamento</b></label><select id="cx-cond" onchange="espMudou()"><option value="normal">Pagar agora (numerário / carteira móvel / POS)</option>${Object.entries(ESP_TIPOS).map(([k,v])=>`<option value="${k}">${v} — requer autorização do Administrador e visto do Director</option>`).join('')}</select></div>
     <div id="cx-cond-campos" style="display:none;"><div class="field-row">
       <div class="field"><label>Motivo / justificação *</label><input id="cx-c-motivo" placeholder="Ex.: paciente carenciado, enviado por parceiro…"></div>
       <div class="field" id="cx-c-parc-box"><label>Parceiro que enviou (se aplicável)</label><input id="cx-c-parceiro"></div>
