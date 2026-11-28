@@ -481,6 +481,7 @@ tbody tr:last-child td{border-bottom:none;}
       <div class="field" id="uf-esp-box" style="display:none;"><label>Especialidade do médico *</label><select id="uf-esp"></select></div>
       <div class="field" id="uf-tel-box" style="display:none;"><label>Telemóvel do médico (para o aviso das consultas por SMS / WhatsApp)</label><input id="uf-tel" type="tel" inputmode="tel" placeholder="84 123 4567" autocomplete="off"></div>
       <div class="field"><label id="uf-email-label">Email</label><input id="uf-email" type="email" autocapitalize="none" spellcheck="false" placeholder="nome@exemplo.com"></div>
+      <div class="field" id="uf-acum-box" style="display:none;"><label style="display:flex;gap:8px;align-items:center;"><input type="checkbox" id="uf-acum"> Pode assumir a Recepção e o Caixa (turno nocturno)</label><div class="cell-sub">Com isto, o enfermeiro vê um botão para passar a trabalhar como Recepção e Caixa e voltar à Enfermagem. Fica tudo registado na auditoria.</div></div>
       <div id="uf-reset-box" style="display:none;margin-bottom:10px;"><button type="button" class="btn sm" onclick="enviarResetMedico()">✉ Enviar email para o médico redefinir a password</button><div class="pass-rules">O médico já entra com o email e uma password guardada no Firebase Authentication. Se a esqueceu, recebe um email com a ligação para criar outra.</div></div>
       <div id="uf-pass-box">
         <div class="field">
@@ -1751,6 +1752,7 @@ function roleLabel(u){
   if(!u) return '';
   if(u.role==='admin') return nivelDe(u)==='director' ? 'Administrador — Director' : 'Administrador da Clínica';
   if(u.role==='financeiro') return nivelDe(u)==='1' ? 'Financeiro — Tesoureiro (nível 1)' : 'Financeiro (nível 2)';
+  if(u.acumulaRecepcao && u.roleBase==='enfermeiro' && u.role==='recepcao') return 'Enfermeiro — a assumir Recepção e Caixa';
   return roleName(u.role);
 }
 const REQ_NATUREZA = {corrente:'Corrente e pontual', naocorrente:'Não corrente (só o Director autoriza)'};
@@ -2666,12 +2668,13 @@ async function esqueciPassword(){
   toast("Se o email estiver registado como médico, vai receber a ligação para criar nova password (veja também o spam).", 8000);
 }
 async function loginAs(u){
-  if(APP_MODO && !APP_MODO.roles.includes(u.role)){
+  const nurseRec = APP_MODO && APP_MODO.key==='recepcao' && u.role==='enfermeiro' && u.acumulaRecepcao;   // enfermeiro do turno nocturno entra pelo atalho da Recepção
+  if(APP_MODO && !nurseRec && !APP_MODO.roles.includes(u.role)){
     audit('login_recusado', 'Sessão', u.username||u.email||'', 'perfil '+u.role+' sem acesso ao posto '+APP_MODO.nome);
     if(USE_FIREBASE && fbAuth) fbAuth.signOut().catch(()=>{});
     toast(`⚠️ Este atalho é só para o posto «${APP_MODO.nome}». Use o atalho do seu perfil.`, 7000); return;
   }
-  currentUser = u;
+  currentUser = u.acumulaRecepcao && u.role==='enfermeiro' ? {...u, roleBase:'enfermeiro', role: nurseRec ? 'recepcao' : 'enfermeiro'} : u;
   audit('login', 'Sessão', u.username||u.email||'', 'sessão iniciada');
   startAuditListener();
   el('boot-screen').style.display = 'none';
@@ -2715,8 +2718,24 @@ function buildSidebar(){
     html += `<div class="sb-sec-label">${sec.sec}</div>`;
     visible.forEach(it=>{ html += `<button class="sb-item" data-view="${it.id}" onclick="go('${it.id}')"><span class="ic">${it.icon}</span>${it.label}</button>`; });
   });
+  if(currentUser.acumulaRecepcao && (currentUser.roleBase||currentUser.role)==='enfermeiro'){
+    const rec = currentUser.role==='recepcao';
+    html = `<div class="sb-sec-label">Turno</div><button class="sb-item" onclick="trocarPosto()" style="background:${rec?'#fde8e6':'#e6f4ea'};font-weight:600;"><span class="ic">🔄</span>${rec?'Voltar à Enfermagem':'Assumir Recepção e Caixa'}</button>` + html;
+  }
   nav.innerHTML = html;
   reqBadge();
+}
+function trocarPosto(){
+  if(!currentUser || !currentUser.acumulaRecepcao || (currentUser.roleBase||currentUser.role)!=='enfermeiro') return;
+  const paraRec = currentUser.role!=='recepcao';
+  if(!paraRec) presencaFim();
+  currentUser = {...currentUser, role: paraRec ? 'recepcao' : 'enfermeiro', roleBase:'enfermeiro'};
+  audit('mudar_posto','Sessão',currentUser.username||'', paraRec ? 'passou a trabalhar como Recepção e Caixa' : 'voltou à Enfermagem');
+  el('sb-urole').textContent = roleLabel(currentUser);
+  buildSidebar();
+  if(paraRec) presencaSinal();
+  go(paraRec ? 'recepcao' : 'internamentos');
+  toast(paraRec ? '🗂 A trabalhar como Recepção e Caixa.' : '🩺 De volta à Enfermagem.');
 }
 function toggleSidebar(open){ document.getElementById('sidebar').classList.toggle('open', open); document.getElementById('sb-backdrop').classList.toggle('active', open); }
 function go(view, param){
@@ -6223,6 +6242,7 @@ function ufRoleChanged(){
     el('uf-nivel').innerHTML = opts.map(o=>`<option value="${o[0]}">${o[1]}</option>`).join('');
     el('uf-nivel').value = u && u.role===rl && u.nivel ? u.nivel : opts[0][0]; nb.style.display = '';
   } else nb.style.display = 'none';
+  el('uf-acum-box').style.display = rl==='enfermeiro' ? '' : 'none'; el('uf-acum').checked = !!(u && u.role==='enfermeiro' && u.acumulaRecepcao);
   el('uf-email').disabled = !!comAuth;
   el('uf-reset-box').style.display = comAuth ? '' : 'none';
   el('uf-pass-box').style.display = (comAuth || (u && u.id===currentUser.id)) ? 'none' : '';
@@ -6279,7 +6299,7 @@ async function saveUser(){
   if(existing && existing.role==='admin' && role!=='admin' && activeAdmins().length<=1 && activeAdmins().some(a=>a.id===existing.id)){
     toast("⚠️ Tem de existir pelo menos um Administrador activo."); return;
   }
-  const data = {nome, role, email, nivel: (role==='admin'||role==='financeiro') ? el('uf-nivel').value : null};
+  const data = {nome, role, email, nivel: (role==='admin'||role==='financeiro') ? el('uf-nivel').value : null, acumulaRecepcao: role==='enfermeiro' && el('uf-acum').checked};
   if(med){ data.especialidadeId = espId; data.telefone = tel; if(existing) data.username = null; }
   else { data.username = username; if(existing && existing.role==='medico'){ data.especialidadeId = null; data.telefone = null; data.authUid = null; data.authOk = null; } }
   let aviso = '';
