@@ -2336,8 +2336,8 @@ function viewAutorizacoes(){
   const todos = invoices.filter(i=>i.aut && i.autEstado).sort((a,b)=>(b.aut.pedidoEm||'').localeCompare(a.aut.pedidoEm||'')).slice(0,60), pend = autPendentes();
   const linha = (i, acoes)=>{ const a = i.aut; return `<tr><td class="cell-name">${esc(i.pacienteNome||'—')}<div class="cell-sub">NID ${esc(i.pacienteNid||'')} · ${esc(i.servico||'')}</div></td><td><span class="tag ${a.tipo==='subsidiado'?'green':'amber'}">${ESP_TIPOS[a.tipo]}</span></td>
     <td><b>${fmtMZN(a.valorAutorizado)}</b>${a.tipo!=='subsidiado'?`<div class="cell-sub">entrada ${fmtMZN(a.entrada)} · ${a.parcelas.length} parcela(s)</div>`:''}</td>
-    <td class="cell-sub">${a.fundamento?'<b>'+esc(a.fundamento)+'</b><br>':''}${esc(a.motivo||'')}${a.parceiro?'<br>Parceiro: '+esc(a.parceiro):''}${a.anexoId?`<br><a href="#" onclick="anexoVer('${a.anexoId}');return false;">📎 Ver comprovativo</a>`:''}${a.isentosNomes?'<br>Isenta: '+esc(a.isentosNomes.join(', '))+' ('+fmtMZN(a.valorIsento)+')':''}${a.adminNota?'<br>Nota do Administrador: '+esc(a.adminNota):''}${a.dirNota?'<br>Nota do Director: '+esc(a.dirNota):''}${a.liberado?'<br>✔ Atendimento libertado':''}<br>Pedido por ${esc(a.pedidoPor||'')} · ${a.pedidoEm?new Date(a.pedidoEm).toLocaleString('pt-PT'):''}</td>
-    <td class="cell-sub">${a.adminPor?'Autorizou: '+esc(a.adminPor)+'<br>':''}${a.dirPor?'Visto: '+esc(a.dirPor):''}<div>${esc(autEstadoTxt(i.autEstado)||i.autEstado)}${i.autRecusa?': '+esc(i.autRecusa):''}</div></td><td>${acoes}</td></tr>`; };
+    <td class="cell-sub">${a.fundamento?'<b>'+esc(a.fundamento)+'</b><br>':''}${esc(a.motivo||'')}${a.parceiro?'<br>Parceiro: '+esc(a.parceiro):''}${a.anexoId?`<br><a href="#" onclick="anexoVer('${a.anexoId}');return false;">📎 Ver comprovativo</a>`:''}${a.isentosNomes?'<br>Isenta: '+esc(a.isentosNomes.join(', '))+' ('+fmtMZN(a.valorIsento)+')':''}${a.adminNota?'<br>Nota do Administrador: '+esc(a.adminNota):''}${a.dirNota?'<br>Nota do Director: '+esc(a.dirNota):''}${a.liberado?'<br>✔ Atendimento libertado':''}${a.cobertura?'<br>📋 Cobertura prevista até '+fmtDate(a.cobertura.validoAte):''}<br>Pedido por ${esc(a.pedidoPor||'')} · ${a.pedidoEm?new Date(a.pedidoEm).toLocaleString('pt-PT'):''}</td>
+    <td class="cell-sub">${a.adminPor?'Autorizou: '+esc(a.adminPor)+'<br>':''}${a.dirPor?'Visto: '+esc(a.dirPor):''}<div>${esc(autEstadoTxt(i.autEstado)||i.autEstado)}${i.autRecusa?': '+esc(i.autRecusa):''}</div></td><td>${acoes}${a.tipo==='subsidiado' && ['AutorizadaAdmin','Autorizada'].includes(i.autEstado) ? ` <button class="btn sm ghost" onclick="autImprimir('${i.id}')">🖶 Autorização</button>`:''}</td></tr>`; };
   const ids = new Set(pend.map(i=>i.id));
   return `<div class="page-head"><div><h1>Autorizações de pagamento especial</h1><div class="desc">Subsidiados, créditos e pagamentos parcelados. O Administrador autoriza e o Director dá o visto — só depois a Recepção emite o documento.</div></div></div>
   ${currentUser.role==='admin' ? `<div class="muted-note" style="margin-bottom:12px;">${autVedado()?`🔒 O Administrador está <b>vedado</b> de libertar o atendimento sem o visto do Director${configDoc.autAdminVedadoPor?' (por '+esc(configDoc.autAdminVedadoPor)+')':''}. ${ehDirector()?'<button class="btn sm" onclick="autDesvedar()">Levantar restrição</button>':''}`:`O Administrador pode libertar o atendimento ao autorizar (com isenção total) e o Director dá o visto a seguir. ${ehDirector()?'<button class="btn sm" onclick="autVedar()">Vedar o Administrador sem o meu visto</button>':''}`}</div>`:''}
@@ -2382,10 +2382,13 @@ async function autDecidir(id, d){
       const soma = r2(isentos.reduce((t,x)=>t+x.v,0)), isento = somaItens>0 ? r2(Math.min(vp, soma*vp/somaItens)) : vp;
       a.isentos = isentos.map(x=>x.k); a.isentosNomes = isentos.map(x=>x.nome); a.valorIsento = isento; a.entrada = r2(vp-isento);
     }
+    if(tipo==='subsidiado'){ const cb = cobLer(v); if(cb){ if(!/^\d{4}-\d{2}-\d{2}$/.test(cb.validoAte) || cb.validoAte<todayStr()){ toast('⚠️ Indique a validade da cobertura (AAAA-MM-DD, não anterior a hoje).'); return false; } a.cobertura = cb; } else delete a.cobertura; }
     const nota = (v.nota||'').trim(); if(!nota){ toast('⚠️ A nota explicativa é obrigatória.'); return false; }
     let novo;
     if(est==='Pedida'){ a.adminPor = currentUser.nome; a.adminEm = agora; a.adminNota = nota; if(comoDir){ a.dirPor = currentUser.nome; a.dirEm = agora; a.dirNota = nota; novo = 'Autorizada'; } else novo = 'AutorizadaAdmin'; }
     else { a.dirPor = currentUser.nome; a.dirEm = agora; a.dirNota = nota; novo = 'Autorizada'; }
+    if(tipo==='subsidiado' && !a.numeroAut) a.numeroAut = await docSeq('AS');
+    a.cobAtiva = novo==='Autorizada' || !autVedado();
     const total = tipo!=='subsidiado' || a.entrada===0;
     const libertar = total && (novo==='Autorizada' || (novo==='AutorizadaAdmin' && !autVedado()));
     if(libertar) a.liberado = true;
@@ -2406,11 +2409,12 @@ async function autDecidir(id, d){
   const secs = [];
   if(tipo==='subsidiado') secs.push({h:`${inv.servico||'Serviço'} — itens que o paciente fica isento de pagar`, f:itens.map(x=>({id:'it'+x.k, l:`${x.nome} — ${fmtMZN(x.v)}`, t:'check'}))});
   outrosIt.forEach(({o, itens:its})=>secs.push({h:`Outros serviços do paciente: ${o.servico||o.tipo||''}`, f:its.map(x=>({id:'o'+o.id+'_'+x.k, l:`${x.nome} — ${fmtMZN(x.v)}`, t:'check'}))}));
+  let cobPre = null; if(tipo==='subsidiado'){ cobPre = cobSeccoes(inv.aut.cobertura); cobPre.secs.forEach(x=>secs.push(x)); }
   const rotulo = est==='AutorizadaAdmin' ? 'Nota do Director' : (comoDir ? 'Nota do Director' : 'Nota explicativa para o Director');
   const f2 = [{id:'nota', l:rotulo+' *', t:'area'}];
   if(comoDir && !autVedado()) f2.push({id:'vedar', l:'Vedar o Administrador de autorizar futuros pedidos sem o meu visto prévio', t:'check'});
   secs.push({h:rotulo, f:f2});
-  const vals = {}; itens.forEach(x=>{ vals['it'+x.k] = pre.has(x.k); });
+  const vals = {}; itens.forEach(x=>{ vals['it'+x.k] = pre.has(x.k); }); if(cobPre) Object.assign(vals, cobPre.vals);
   fichaModal((est==='AutorizadaAdmin'?'Visto do Director — ':'Autorizar — ')+(inv.pacienteNome||''), secs, vals, est==='AutorizadaAdmin'?'Dar visto':(comoDir?'Autorizar e visar':'Autorizar'), executar,
     (tipo==='subsidiado' ? 'Tudo o que não for isento é cobrado ao paciente no Caixa. ' : '')+(est==='Pedida'&&!comoDir ? (autVedado()?'O Director vedou autorizações sem o seu visto: o atendimento só começa depois do visto.':'Com isenção total, o atendimento pode começar já; o Director dá o visto depois.') : ''));
 }
@@ -2440,6 +2444,7 @@ function htmlSubsidio(inv, via){
     <div class="doc-section"><div class="lab">Fundamento</div><div style="font-size:12.5px;"><b>${esc(e.fundamento||'')}</b>${e.parceiro?' · enviado por '+esc(e.parceiro):''}<br>${esc(e.motivo||'')}<br>Comprovativo anexado: ${esc(e.anexoNome||'—')}</div></div>
     ${(e.isentosNomes||[]).length?`<div class="doc-section"><div class="lab">Isento de pagamento</div><div style="font-size:12.5px;">${e.isentosNomes.map(esc).join('; ')}</div></div>`:''}
     <div class="doc-section"><div class="lab">Autorização</div><div style="font-size:12.5px;">Autorizado por <b>${esc(e.adminPor||'')}</b>${e.adminEm?' em '+new Date(e.adminEm).toLocaleString('pt-PT'):''}<br>Visto do Director: <b>${esc(e.dirPor||'')}</b>${e.dirEm?' em '+new Date(e.dirEm).toLocaleString('pt-PT'):''}${e.adminNota?'<br><i>Nota do Administrador:</i> '+esc(e.adminNota):''}${e.dirNota?'<br><i>Nota do Director:</i> '+esc(e.dirNota):''}</div></div>
+    ${cobTextoHtml(e.cobertura)}
     <div class="doc-foot"><div class="doc-sign"><div class="line"></div>Assinatura do paciente</div><div class="doc-sign"><div class="line"></div>${esc(e.dirPor||'')} (Director)</div><div class="doc-sign"><div class="line"></div>${esc(inv.emitidaPor||'')} (Recepção)</div></div></div>`;
 }
 /* ---- créditos, parcelas e subsidiados ---- */
@@ -2514,6 +2519,55 @@ function relAnulacoesDados(dentro){
   const anuladas = invoices.filter(i=>i.estado==='Anulada' && i.numero && i.anuladaEm && dentro(diaLocal(i.anuladaEm))).map(i=>({numero:i.numero, paciente:i.pacienteNome||'', valor:Number(i.valorAnulado!==undefined?i.valorAnulado:valorPacienteDe(i))||0, motivo:i.anulacaoMotivo||'', por:i.anuladaPor||'', dia:diaLocal(i.anuladaEm)}));
   const editadas = []; invoices.filter(i=>i.numero && (i.edicoes||[]).length).forEach(i=>i.edicoes.filter(e=>dentro(diaLocal(e.em))).forEach(e=>editadas.push({numero:i.numero, paciente:i.pacienteNome||'', motivo:e.motivo, por:e.por, dia:diaLocal(e.em)})));
   return {anuladas, editadas};
+}
+
+/* ================= COBERTURA PREVISTA DO SUBSÍDIO (exames, tratamentos, procedimentos, medicamentos) ================= */
+const COB_GRUPOS = {exames:'Exames laboratoriais', tratamentos:'Tratamentos', procedimentos:'Procedimentos', medicamentos:'Medicamentos'};
+function cobCatalogo(g){
+  if(g==='exames') return exames.slice();
+  if(g==='tratamentos') return tratamentos.filter(c=>c.categoria!=='Procedimento' && c.categoria!=='Diária de internamento');
+  if(g==='procedimentos') return tratamentos.filter(c=>c.categoria==='Procedimento');
+  return medicamentos.filter(m=>m.categoria!=='Óptica' && prodAtivo(m));
+}
+function cobSeccoes(pre){
+  const p = pre || {};
+  const secs = [{h:'Cobertura prevista (o que o paciente fica isento se o médico prescrever ou requisitar)', f:[{id:'cob_ate', l:'Válida até (AAAA-MM-DD)'}, ...Object.entries(COB_GRUPOS).map(([g,n])=>({id:'cob_t_'+g, l:'Todos: '+n.toLowerCase(), t:'check'}))]}];
+  Object.entries(COB_GRUPOS).forEach(([g,n])=>{ const l = cobCatalogo(g); if(l.length) secs.push({h:n+' (itens isentos)', f:l.map(c=>({id:'cx_'+g+'_'+c.id, l:c.nome, t:'check'}))}); });
+  const vals = {cob_ate: p.validoAte || addMeses(todayStr(),1)};
+  Object.keys(COB_GRUPOS).forEach(g=>{ const x = (p[g]||{}); vals['cob_t_'+g] = !!x.todos; (x.ids||[]).forEach(id=>{ vals['cx_'+g+'_'+id] = true; }); });
+  return {secs, vals};
+}
+function cobLer(v){
+  const cob = {validoAte:(v.cob_ate||'').trim()}; let alguma = false;
+  Object.keys(COB_GRUPOS).forEach(g=>{ cob[g] = {todos:!!v['cob_t_'+g], ids:cobCatalogo(g).filter(c=>v['cx_'+g+'_'+c.id]).map(c=>c.id)}; if(cob[g].todos || cob[g].ids.length) alguma = true; });
+  return alguma ? cob : null;
+}
+function cobCobre(cob, g, id){ const x = cob && cob[g]; return !!x && (x.todos || (x.ids||[]).includes(id)); }
+function coberturaActiva(nid){
+  const hoje = todayStr();
+  const l = invoices.filter(i=>String(i.pacienteNid)===String(nid) && i.aut && i.aut.cobertura && i.aut.cobAtiva && !['Anulada','Cancelada'].includes(i.estado) && ['Autorizada','AutorizadaAdmin'].includes(i.autEstado) && (i.aut.cobertura.validoAte||'')>=hoje)
+    .sort((a,b)=>(b.aut.pedidoEm||'').localeCompare(a.aut.pedidoEm||''));
+  return l.length ? {...l[0].aut, invId:l[0].id} : null;
+}
+function cobGrupoOrdem(tipo, catItem){ return tipo==='exame' ? 'exames' : (catItem && catItem.categoria==='Procedimento' ? 'procedimentos' : 'tratamentos'); }
+function cobAplicar(cob, tipo, itens, cat){
+  let isento = 0; const idx = [], nomes = [];
+  itens.forEach((it,k)=>{ const ci = cat.find(c=>c.id===it.catId); if(cobCobre(cob.cobertura, cobGrupoOrdem(tipo, ci), it.catId)){ isento += it.subtotal; idx.push(k); nomes.push(it.nome+(it.quantidade>1?' ×'+it.quantidade:'')); } });
+  return {isento:r2(isento), idx, nomes};
+}
+function especialDeAut(a, vp, isento, numeroAut){
+  return {tipo:'subsidiado', motivo:a.motivo||'', parceiro:a.parceiro||'', valorDiferido:isento, entrada:r2(vp-isento), isentosNomes:a.isentosNomes||[], adminNota:a.adminNota||'', parcelas:[], adminPor:a.adminPor||'', adminEm:a.adminEm||'', dirPor:a.dirPor||'', dirEm:a.dirEm||'', dirNota:a.dirNota||'', pedidoPor:a.pedidoPor||'', fundamento:a.fundamento||'', anexoId:a.anexoId||'', anexoNome:a.anexoNome||'', valorTotal:vp, numeroAut:numeroAut||'', cobertura:a.cobertura||null};
+}
+function cobTextoHtml(cob){
+  if(!cob) return '';
+  const lin = Object.entries(COB_GRUPOS).map(([g,n])=>{ const x = cob[g]; if(!x || (!x.todos && !(x.ids||[]).length)) return ''; const nomes = x.todos ? 'todos' : cobCatalogo(g).filter(c=>x.ids.includes(c.id)).map(c=>c.nome).join('; ') || (x.ids.length+' item(ns)'); return `<div><b>${n}:</b> ${esc(nomes)}</div>`; }).join('');
+  return `<div class="doc-section"><div class="lab">Cobertura prevista — isento de pagamento se prescrito ou requisitado (válida até ${fmtDate(cob.validoAte)})</div><div style="font-size:12px;">${lin}</div><div style="font-size:10.5px;margin-top:4px;">Apresente este documento. O que estiver aqui indicado não passa pelo Caixa.</div></div>`;
+}
+function autImprimir(id){
+  const i = invoices.find(x=>x.id===id); if(!i || !i.aut || !['AutorizadaAdmin','Autorizada'].includes(i.autEstado) || i.aut.tipo!=='subsidiado') return;
+  const a = i.aut, vp = Number(a.valorAutorizado)||0, isento = Number(a.valorIsento!==undefined?a.valorIsento:vp);
+  const pseudo = {...i, tipoDoc:'Subsídio', numero:a.numeroAut||'', valorPaciente:r2(vp-isento), valor:vp, especial:especialDeAut(a, vp, isento, a.numeroAut), emitidaEm:a.dirEm||a.adminEm||new Date().toISOString(), emitidaPor:a.pedidoPor||currentUser.nome};
+  printDoc(htmlSubsidio(pseudo, i.autEstado==='Autorizada' ? '' : 'PROVISÓRIA — aguarda o visto do Director'));
 }
 
 /* ================= MODELOS POR ESPECIALIDADE (Oftalmologia, Relatório médico, Aconselhamento) ================= */
@@ -2931,7 +2985,7 @@ function calcPreco(pg, tipo, id, geral, nid, ignoreId){
 function beneficiarioAtivoDe(nid, dia){
   return beneficiarios.filter(b=>String(b.pacienteNid)===String(nid) && beneficiarioValido(b, dia).ok).sort((a,b)=>(b.criadoEm||'').localeCompare(a.criadoEm||''))[0] || null;
 }
-function liberada(a){ return !!a && ['Pago','A crédito'].includes(a.estadoPagamento); }
+function liberada(a){ return !!a && ['Pago','A crédito','Subsidiado','Parcelado','Subsidiado (autorizado)'].includes(a.estadoPagamento); }
 function valorPacienteDe(i){ return i.valorPaciente!==undefined && i.valorPaciente!==null ? Number(i.valorPaciente) : Number(i.valor)||0; }
 function pagLabel(pg){ if(!pg || pg.tipo==='individual') return 'Paciente comum'; if(pg.tipo==='empresa') return 'Empresa: '+pg.entidadeNome; return 'Seguro: '+pg.entidadeNome+(pg.planoNome?' · '+pg.planoNome:''); }
 function pagTag(a){
@@ -3999,7 +4053,7 @@ function viewCaixa(){
           <td><span class="tag ${i.tipo==='Consulta'?'blue':'grey'}">${esc(i.tipo||'')}</span> ${esc(i.servico)}</td>
           <td>${pg.tipo==='individual' ? '<span class="tag grey">Comum</span>' : `<span class="tag ${pg.tipo==='empresa'?'blue':'amber'}">${pg.tipo==='empresa'?'🏢':'🛡'} ${esc(pg.entidadeNome)}${pg.planoNome?' · '+esc(pg.planoNome):''}</span>`}</td>
           <td><b>${fmtMZN(vp)}</b>${autActiva(i)&&i.aut?`<div class="cell-sub"><span class="tag ${i.autEstado==='Autorizada'?'green':'amber'}">${ESP_TIPOS[i.aut.tipo]}: ${esc(autEstadoTxt(i.autEstado))}</span></div>`:''}</td><td>${ve>0?fmtMZN(ve):'—'}</td>
-          <td><button class="btn sm solid" onclick="openPagamento('${i.id}')">${ve>0?'Emitir factura':'Receber (VD)'}</button></td></tr>`; }).join("") || `<tr><td colspan="6"><div class="empty">Nada por confirmar.</div></td></tr>`}</tbody>
+          <td>${(()=>{ const ap = i.apptId && appointments.find(x=>x.id===i.apptId); return ap && ap.estado==='Confirmada' && liberada(ap) ? `<button class="btn sm solid" onclick="openCheckin('${ap.id}')">Check-in</button> ` : ''; })()}<button class="btn sm solid" onclick="openPagamento('${i.id}')">${ve>0?'Emitir factura':'Receber (VD)'}</button></td></tr>`; }).join("") || `<tr><td colspan="6"><div class="empty">Nada por confirmar.</div></td></tr>`}</tbody>
       </table></div>
     </div>
     <div class="card">
@@ -4174,8 +4228,8 @@ function openPagamento(invId){
     const subPuro = !!(E.aut && E.aut.tipo==='subsidiado' && vpPag===0 && ve===0);
     const tipoDoc = subPuro ? 'Subsídio' : (ve>0 ? 'Factura' : 'VD');
     const agora = new Date().toISOString();
-    const upd = {numero: await docSeq(tipoDoc==='Subsídio' ? 'AS' : (tipoDoc==='VD'?'VD':'FT')), tipoDoc, ...(subPuro ? {naoFiscal:true} : {}), estado:'Pago', metodo, pagamentos:pm.pagamentos, refPagamento:refPag, pagoEm:agora, pagoPor:currentUser.nome,
-      emitidaEm:agora, emitidaPor:currentUser.nome, valorPaciente:vpPag, valorEntidade:ve, ...(E.aut ? {especial:{tipo:E.aut.tipo, motivo:E.aut.motivo, parceiro:E.aut.parceiro||'', valorDiferido:r2(vp-vpPag), entrada:vpPag, isentosNomes:E.aut.isentosNomes||[], adminNota:E.aut.adminNota||'', parcelas:E.aut.parcelas, adminPor:E.aut.adminPor, adminEm:E.aut.adminEm||'', dirPor:E.aut.dirPor, dirEm:E.aut.dirEm||'', dirNota:E.aut.dirNota||'', pedidoPor:E.aut.pedidoPor, fundamento:E.aut.fundamento||'', anexoId:E.aut.anexoId||'', anexoNome:E.aut.anexoNome||'', valorTotal:vp, numeroAut:(E.aut.tipo==='subsidiado' && !subPuro) ? await docSeq('AS') : ''}} : {}), estadoEntidade: ve>0 ? 'Pendente' : '', pagador:pg,
+    const upd = {numero: (tipoDoc==='Subsídio' && E.aut.numeroAut) ? E.aut.numeroAut : await docSeq(tipoDoc==='Subsídio' ? 'AS' : (tipoDoc==='VD'?'VD':'FT')), tipoDoc, ...(subPuro ? {naoFiscal:true} : {}), estado:'Pago', metodo, pagamentos:pm.pagamentos, refPagamento:refPag, pagoEm:agora, pagoPor:currentUser.nome,
+      emitidaEm:agora, emitidaPor:currentUser.nome, valorPaciente:vpPag, valorEntidade:ve, ...(E.aut ? {especial:{tipo:E.aut.tipo, motivo:E.aut.motivo, parceiro:E.aut.parceiro||'', valorDiferido:r2(vp-vpPag), entrada:vpPag, isentosNomes:E.aut.isentosNomes||[], adminNota:E.aut.adminNota||'', parcelas:E.aut.parcelas, adminPor:E.aut.adminPor, adminEm:E.aut.adminEm||'', dirPor:E.aut.dirPor, dirEm:E.aut.dirEm||'', dirNota:E.aut.dirNota||'', pedidoPor:E.aut.pedidoPor, fundamento:E.aut.fundamento||'', anexoId:E.aut.anexoId||'', anexoNome:E.aut.anexoNome||'', valorTotal:vp, numeroAut:E.aut.tipo==='subsidiado' ? (E.aut.numeroAut || (!subPuro ? await docSeq('AS') : '')) : '', cobertura:E.aut.cobertura||null}} : {}), estadoEntidade: ve>0 ? 'Pendente' : '', pagador:pg,
       ...(mudou ? {valor:c.valor, itens:c.itens, ...(c.precoReferencia!==undefined ? {precoReferencia:c.precoReferencia} : {}), pagadorAlteradoNoCaixa:true} : {})};
     await Store.setDoc('invoices', inv.id, upd);
     if(inv.apptId){
@@ -5458,12 +5512,12 @@ function dispSugestao(it, venda){
   return pts.length && pts[0].sc>=0.75 && (!pts[1] || pts[1].sc < pts[0].sc) ? pts[0].m : null;
 }
 function dispItens(r){
-  const itens = [];
+  const itens = [], cobDisp = coberturaActiva(r.pacienteNid);
   for(let idx=0; idx<r.itens.length; idx++){
     const sel = el('disp-prod-'+idx), m = sel ? medById(sel.value) : null, q = Math.floor(Number(el('disp-qtd-'+idx).value)||0);
     if(!m || q<1) continue;
     const pu = precoContratual(entidadeDoPagador(window._dispPg), m.categoria==='Óptica'?'optica':'medicamento', m.id, m.preco);
-    itens.push({produtoId:m.id, nome:m.nome, qtd:q, precoUnit:pu, precoRef:Number(m.preco)||0, subtotal:r2(pu*q), cat:m.categoria==='Óptica'?'optica':'medicamento'});
+    itens.push({produtoId:m.id, nome:m.nome, qtd:q, precoUnit:pu, precoRef:Number(m.preco)||0, subtotal:r2(pu*q), cat:m.categoria==='Óptica'?'optica':'medicamento', isento: !!(cobDisp && window._dispPg.tipo==='individual' && m.categoria!=='Óptica' && cobCobre(cobDisp.cobertura,'medicamentos',m.id))});
   }
   return itens;
 }
@@ -5473,10 +5527,10 @@ function dispRecalc(){
   let usado = 0; itens.forEach(it=>{ const cv = dividirCobertura(it.subtotal, pg, it.cat, it.produtoId, r.pacienteNid, null, usado); it.valorEntidade = cv.valorEntidade; usado += cv.valorEntidade; });
   r.itens.forEach((_,idx)=>{ const l = el('disp-linha-'+idx), sel = el('disp-prod-'+idx), m = sel ? medById(sel.value) : null, q = Math.floor(Number(el('disp-qtd-'+idx).value)||0);
     if(l) l.innerHTML = m && q>0 ? `${q} × ${fmtMZN(m.preco)} = <b>${fmtMZN(r2((Number(m.preco)||0)*q))}</b>${Number(m.stock)<q?' <span style="color:#b00;">· sem stock suficiente</span>':''}` : '<span style="color:#b00;">sem produto escolhido</span>'; });
-  const total = r2(itens.reduce((t,i)=>t+i.subtotal,0)), ve = r2(itens.reduce((t,i)=>t+(i.valorEntidade||0),0));
-  el('disp-total').textContent = 'Total: '+fmtMZN(total)+(pg.tipo!=='individual' ? ` · Entidade ${fmtMZN(ve)} · Paciente ${fmtMZN(total-ve)}` : '');
-  el('disp-metodo-box').style.display = total-ve>0 ? '' : 'none';
-  if(total-ve>0) pmInit('disp-pm', r2(total-ve));
+  const total = r2(itens.reduce((t,i)=>t+i.subtotal,0)), ve = r2(itens.reduce((t,i)=>t+(i.valorEntidade||0),0)), sb = r2(itens.filter(i=>i.isento).reduce((t,i)=>t+i.subtotal,0));
+  el('disp-total').textContent = 'Total: '+fmtMZN(total)+(pg.tipo!=='individual' ? ` · Entidade ${fmtMZN(ve)} · Paciente ${fmtMZN(total-ve)}` : '')+(sb>0 ? ` · Isento (subsídio) ${fmtMZN(sb)} · Paciente paga ${fmtMZN(r2(total-ve-sb))}` : '');
+  el('disp-metodo-box').style.display = total-ve-sb>0 ? '' : 'none';
+  if(total-ve-sb>0) pmInit('disp-pm', r2(total-ve-sb));
 }
 async function confirmDispensar(){
   const r = receitas.find(x=>x.id===window._dispRx);
@@ -5486,12 +5540,12 @@ async function confirmDispensar(){
   if(itens.length < r.itens.length && !confirm(`${r.itens.length-itens.length} medicamento(s) da receita ficam sem produto escolhido e NÃO serão dispensados nem facturados. Continuar?`)) return;
   for(const it of itens){ const m = medById(it.produtoId); if(prodExpirado(m) || !prodAtivo(m)){ toast(`⚠️ ${m.nome} está expirado ou inactivo e não pode ser dispensado.`); return; } if(Number(m.stock)<it.qtd){ toast(`⚠️ Stock insuficiente de ${m.nome} (disponível: ${m.stock}).`); return; } }
   let usado = 0; itens.forEach(it=>{ const cv = dividirCobertura(it.subtotal, pg, it.cat, it.produtoId, r.pacienteNid, null, usado); it.valorEntidade = cv.valorEntidade; usado += cv.valorEntidade; });
-  const total = r2(itens.reduce((t,i)=>t+i.subtotal,0)), ve = r2(itens.reduce((t,i)=>t+i.valorEntidade,0)), vp = r2(total-ve), ref = r2(itens.reduce((t,i)=>t+i.precoRef*i.qtd,0));
+  const total = r2(itens.reduce((t,i)=>t+i.subtotal,0)), ve = r2(itens.reduce((t,i)=>t+i.valorEntidade,0)), subs = r2(itens.filter(i=>i.isento).reduce((t,i)=>t+i.subtotal,0)), vp = r2(total-ve-subs), ref = r2(itens.reduce((t,i)=>t+i.precoRef*i.qtd,0));
   const pm0 = vp>0 ? pmLer('disp-pm', vp) : {pagamentos:[], metodo:'Conta a crédito', refPagamento:''};
   if(pm0.erro){ toast('⚠️ '+pm0.erro); return; }
   try{ await Store.claim('receitas', r.id, 'estado', 'Pendente', 'Dispensada'); }
   catch(e){ closeModal('modal-dispensar'); toast("⚠️ Esta receita já foi dispensada (talvez noutro posto)."); return; }
-  const tipoDoc = ve>0 ? 'Factura' : 'VD', numero = await docSeq(tipoDoc==='VD' ? 'VD' : 'FT'), pm = pm0, metodo = pm.metodo, agora = new Date().toISOString();
+  const subPuroF = subs>0 && vp===0 && ve===0, tipoDoc = subPuroF ? 'Subsídio' : (ve>0 ? 'Factura' : 'VD'), cobD = subs>0 ? coberturaActiva(r.pacienteNid) : null, numero = await docSeq(subPuroF ? 'AS' : (tipoDoc==='VD' ? 'VD' : 'FT')), pm = pm0, metodo = subPuroF ? 'Subsidiado' : pm.metodo, agora = new Date().toISOString();
   try{ await Store.takeStock(itens.map(i=>({id:i.produtoId, qtd:i.qtd, nome:i.nome})), {tipo:'Dispensa', ref:r.numero, motivo:'Dispensa de receita'}); }
   catch(e){
     await Store.setDoc('receitas', r.id, {estado:'Pendente'});
@@ -5501,6 +5555,7 @@ async function confirmDispensar(){
   await Store.addDoc('vendas', {numero, itens:itens.map(i=>({produtoId:i.produtoId, nome:i.nome, qtd:i.qtd, precoUnit:i.precoUnit, subtotal:i.subtotal})), total, metodo, pagamentos:pm.pagamentos, valorPaciente:vp, pacienteNid:r.pacienteNid, pacienteNome:r.pacienteNome, data:todayStr(), em:agora, por:currentUser.nome, pagador:pg, receita:r.numero});
   const invoice = {numero, tipoDoc, pacienteNid:r.pacienteNid, pacienteNome:r.pacienteNome, tipo:'Farmácia', servico:`Dispensa de receita ${r.numero}`, itens:itens.map(i=>({nome:i.nome, quantidade:i.qtd, precoUnit:i.precoUnit, subtotal:i.subtotal})),
     valor:total, precoReferencia:ref, valorEntidade:ve, valorPaciente:vp, pagador:pg, metodo, pagamentos:pm.pagamentos, refPagamento:pm.refPagamento, estado:'Pago', estadoEntidade: ve>0 ? 'Pendente' : '', data:todayStr(), pagoEm:agora, pagoPor:currentUser.nome, emitidaEm:agora, emitidaPor:currentUser.nome};
+  if(subs>0 && cobD){ invoice.naoFiscal = subPuroF; invoice.especial = especialDeAut({...cobD, motivo:'Cobertura prevista no subsídio '+(cobD.numeroAut||''), isentosNomes:itens.filter(i=>i.isento).map(i=>i.nome+(i.qtd>1?' ×'+i.qtd:''))}, r2(vp+subs), subs, subPuroF ? numero : await docSeq('AS')); invoice.especial.cobertura = null; }
   await Store.addDoc('invoices', invoice);
   await Store.setDoc('receitas', r.id, {dispensadaPor:currentUser.nome, dispensadaEm:agora});
   closeModal('modal-dispensar');
@@ -7390,18 +7445,28 @@ async function confirmOrdem(){
     printDoc(renderOrdemDoc(tipo, {...ordem, id: oid}));
     return;
   }
+  const cobS = (!ext && pg.tipo==='individual' && nid) ? coberturaActiva(nid) : null, cv = cobS ? cobAplicar(cobS, tipo, itens, cat) : null, vpO = div.valorPaciente;
+  const subsTotal = !!(cv && cv.isento>0 && r2(vpO-cv.isento)<=0.004), subsAlguma = !!(cv && cv.isento>0);
+  let autO = null, numAS = '';
+  if(subsAlguma){
+    const isento = Math.min(cv.isento, vpO);
+    autO = {tipo:'subsidiado', motivo:'Cobertura prevista no subsídio '+(cobS.numeroAut||''), fundamento:cobS.fundamento||'', parceiro:cobS.parceiro||'', anexoId:cobS.anexoId||'', anexoNome:cobS.anexoNome||'', parcelas:[], valorAutorizado:vpO, isentos:cv.idx, isentosNomes:cv.nomes, valorIsento:isento, entrada:r2(vpO-isento), pedidoPor:cobS.pedidoPor, pedidoEm:cobS.pedidoEm, adminPor:cobS.adminPor, adminEm:cobS.adminEm, adminNota:cobS.adminNota||'', dirPor:cobS.dirPor||'', dirEm:cobS.dirEm||'', dirNota:cobS.dirNota||'', cobertura:cobS.cobertura, origemCobertura:cobS.invId, liberado:subsTotal};
+    if(subsTotal){ numAS = await docSeq('AS'); autO.numeroAut = numAS; ordem.estado = 'Pago'; ordem.liberadoSubsidio = true; ordem.pagoEm = new Date().toISOString(); ordem.factura = numAS; }
+  }
   const ordemId = await Store.addDoc(ordemCol(tipo), ordem);
   const servico = (isT ? (isProc ? 'Procedimento: ' : 'Tratamento: ') : 'Exames: ') + itens.map(i=>i.nome + (i.quantidade>1 ? ' ×'+i.quantidade : '')).join(', ') + (ext ? ' — referido de '+ext.unidade : '');
   const invId = await Store.addDoc('invoices', {
     numero:'', pacienteNid: nid, pacienteNome: p?p.nome:'', tipo: isT?'Tratamento':'Exame', categoria: isT ? (isProc ? 'Procedimento' : 'Tratamento') : 'Exame', servico,
     itens: itens.map(i=>({nome:i.nome, quantidade:i.quantidade, precoUnit:i.precoUnit, subtotal:i.subtotal})),
     valor: total, precoReferencia: ref, valorEntidade: div.valorEntidade, valorPaciente: div.valorPaciente, pagador: pg,
-    metodo:'', estado:'Pendente', data: todayStr(), ordemTipo: tipo, ordemId   // sem apptId: não mexe na consulta
+    metodo:'', estado:'Pendente', data: todayStr(), ordemTipo: tipo, ordemId,   // sem apptId: não mexe na consulta
+    ...(autO ? {aut:autO, autEstado:'Autorizada'} : {}),
+    ...(subsTotal ? {numero:numAS, tipoDoc:'Subsídio', naoFiscal:true, estado:'Pago', valorPaciente:0, valorEntidade:0, metodo:'Subsidiado', pagamentos:[], pagoEm:ordem.pagoEm, pagoPor:currentUser.nome, emitidaEm:ordem.pagoEm, emitidaPor:currentUser.nome, especial:especialDeAut(autO, vpO, autO.valorIsento, numAS)} : {})
   });
   await Store.setDoc(ordemCol(tipo), ordemId, {invoiceId: invId});
   if(ext) audit('procedimento_directo', 'Procedimento directo', numero, `${p?p.nome:''} · referido de ${ext.unidade} · ${fmtMZN(total)}`);
   closeModal('modal-ordem');
-  toast(`✅ ${isT?(isProc?'Procedimento registado':'Tratamento registado'):'Exames registados'}. O paciente segue para o Caixa, onde é emitido o documento.`, 5000);
+  toast(subsTotal ? `✅ ${isT?'Tratamento':'Exames'} isento(s) pelo subsídio autorizado (${numAS}). Pode ser realizado já, sem passar pelo Caixa.` : subsAlguma ? `✅ Registado. Parte isenta pelo subsídio; o paciente paga ${fmtMZN(autO.entrada)} no Caixa.` : `✅ ${isT?(isProc?'Procedimento registado':'Tratamento registado'):'Exames registados'}. O paciente segue para o Caixa, onde é emitido o documento.`, 5000);
   printDoc(renderOrdemDoc(tipo, {...ordem, id: ordemId}));
 }
 
