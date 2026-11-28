@@ -1941,7 +1941,7 @@ async function anexoVer(id){
 }
 /* ---- saldo de cada Financeiro nível 2 ---- */
 const fin2Lista = ()=> users.filter(u=>u.role==='financeiro' && nivelDe(u)==='2' && u.ativo!==false);
-function fundoRecebido(uid){ return r2(transferencias.filter(t=>t.destinatarioId===uid).reduce((s,t)=>s+(Number(t.valor)||0),0)); }
+function fundoRecebido(uid){ return r2(transferencias.filter(t=>t.destinatarioId===uid && t.estado==='Recebida').reduce((s,t)=>s+(Number(t.valor)||0),0)); }
 function fundoPago(uid){ return r2(requisicoes.filter(r=>r.paga && r.pagaPerfil==='financeira2' && r.pagaPorId===uid).reduce((s,r)=>s+(Number(r.total)||0),0)); }
 function fundoSaldo(uid){ return r2(fundoRecebido(uid)-fundoPago(uid)); }
 /* ---- tesoureira envia fundos à Financeira 2 ---- */
@@ -1965,23 +1965,49 @@ function fundosEnviar(){
       let anexoId; try{ anexoId = await anexoGuardar(v.file, {refTipo:'transferencia'}); }catch(e){ toast('⚠️ '+e.message); return false; }
       const numero = await docSeq('TF');
       const tid = await Store.addDoc('transferencias', {numero, data:v.data||todayStr(), metodo:v.metodo, referencia:v.ref.trim(), destinatarioId:v.dest, destinatarioNome:du?du.nome:'', valor,
-        itens:sel.map(r=>({id:r.id, numero:r.numero, fornecedor:r.fornecedor, valor:r.total})), comprovativoId:anexoId, enviadoPor:currentUser.nome, enviadoPorId:currentUser.id, enviadoEm:new Date().toISOString()});
+        itens:sel.map(r=>({id:r.id, numero:r.numero, fornecedor:r.fornecedor, valor:r.total})), comprovativoId:anexoId, estado:'Enviada', enviadoPor:currentUser.nome, enviadoPorId:currentUser.id, enviadoEm:new Date().toISOString()});
       for(const r of sel) await Store.setDoc('requisicoes', r.id, {financiadaTransfId:tid, financiadaTransfNumero:numero, financiadaPara:v.dest});
       await Store.setDoc('anexos', anexoId, {refId:tid});
       audit('fundos_enviados', 'Transferência de fundos', numero, `${fmtMZN(valor)} para ${du?du.nome:''} · ${sel.map(r=>r.numero).join(', ')}`.slice(0,200));
-      toast(`✅ Fundos enviados (${numero}). O valor já está disponível para a Financeira.`, 6000);
+      toast(`✅ Fundos enviados (${numero}). Ficam disponíveis quando a Financeira confirmar a recepção.`, 6000);
     }, lista);
 }
+async function fundosAceitar(id){
+  const t = transferencias.find(x=>x.id===id); if(!t || t.destinatarioId!==currentUser.id || !ehFin2() || t.estado!=='Enviada') return;
+  if(!confirm(`Confirma que recebeu MZN ${num2(t.valor)} (${t.numero}, ${t.metodo})?`)) return;
+  try{ await Store.claim('transferencias', id, 'estado', 'Enviada', 'Recebida'); }catch(e){ toast('⚠️ Já foi confirmada.'); return; }
+  await Store.setDoc('transferencias', id, {recebidaPor:currentUser.nome, recebidaEm:new Date().toISOString()});
+  audit('fundos_recebidos','Transferência de fundos',t.numero,`${t.valor} MZN confirmados por ${currentUser.nome}`);
+  toast('✅ Recepção confirmada. O valor já está no seu saldo.');
+}
 function fundosSoma(){ const t = [...document.querySelectorAll('.fd-req:checked')].reduce((s,c)=>s+Number(c.dataset.v),0); const e = document.getElementById('fd-soma'); if(e) e.textContent = 'Total a enviar: MZN '+num2(t); }
+let relRQ = {tipo:'mes',de:'',ate:''};
+function relReqDados(){
+  const pd = periodoDatas(relRQ), linhas = requisicoes.filter(r=>r.paga && (r.pagaEm||'')>=pd.de && (r.pagaEm||'')<=pd.ate).sort((a,b)=>(a.pagaEm||'').localeCompare(b.pagaEm||''));
+  return {pd, linhas, total:r2(linhas.reduce((s,r)=>s+r.total,0))};
+}
+function relReqTabela(r, btn){
+  return `<div class="table-wrap"><table class="${btn?'':'doc-table'}"><thead><tr><th>Requisição</th><th>Fornecedor</th><th>Valor</th><th>Fundos (envio → recepção)</th><th>Pagamento</th>${btn?'<th>Comprovativos</th>':''}</tr></thead><tbody>
+  ${r.linhas.map(q=>{const t=transferencias.find(x=>x.id===q.financiadaTransfId);return `<tr><td>${esc(q.numero)}</td><td>${esc(q.fornecedor)}</td><td style="text-align:right;">${num2(q.total)}</td>
+   <td>${t?`${esc(t.numero)} · ${fmtDate(t.data)} · ${esc(t.enviadoPor||'')}<div class="cell-sub">${t.estado==='Recebida'?'Recebido por '+esc(t.recebidaPor||'')+' em '+(t.recebidaEm?fmtDate(t.recebidaEm.slice(0,10)):''):'Por confirmar'}</div>`:'<span class="cell-sub">Pagamento directo</span>'}</td>
+   <td>${fmtDate(q.pagaEm)} · ${esc(q.pagaPor||'')}<div class="cell-sub">${esc(q.pagaMetodo||'')}${q.pagaRef?' · '+esc(q.pagaRef):''}</div></td>
+   ${btn?`<td style="white-space:nowrap;">${t&&t.comprovativoId?`<button class="btn sm ghost" onclick="anexoVer('${t.comprovativoId}')">📎 Envio (tesoureira)</button> `:''}${q.comprovativoId?`<button class="btn sm ghost" onclick="anexoVer('${q.comprovativoId}')">📎 Pagamento (financeira)</button>`:''}</td>`:''}</tr>`;}).join('')||`<tr><td colspan="${btn?6:5}"><div class="empty">Sem requisições pagas neste período.</div></td></tr>`}
+  </tbody><tfoot><tr><td colspan="2" style="text-align:right;"><b>Total</b></td><td style="text-align:right;"><b>${num2(r.total)}</b></td><td colspan="${btn?3:2}"></td></tr></tfoot></table></div>`;
+}
+function imprimirRelReq(){ const r = relReqDados(); printDoc(`<div class="doc" style="font-size:11.5px;">${docHeader('Relatório de pagamento de requisições', r.pd.de+'…'+r.pd.ate)}<div style="margin-bottom:8px;">Período: <b>${r.pd.nome}</b> (${fmtDate(r.pd.de)} a ${fmtDate(r.pd.ate)}) · Emitido em ${fmtDate(todayStr())} por ${esc(currentUser.nome)}</div>${relReqTabela(r,false)}${docFooter(currentUser.nome)}</div>`); }
 function viewReqFundos(){
   const meu = ehFin2() ? currentUser.id : null, lista = [...transferencias].filter(t=>!meu || t.destinatarioId===meu).sort((a,b)=>(b.numero||'').localeCompare(a.numero||''));
-  const saldos = (meu ? [currentUser] : fin2Lista()).map(u=>`<div class="kpi"><div class="lbl">${esc(u.nome)} — saldo para pagamentos</div><div class="val">MZN ${num2(fundoSaldo(u.id))}</div><div class="sub">recebido ${num2(fundoRecebido(u.id))} · pago ${num2(fundoPago(u.id))}</div></div>`).join('');
+  const saldos = (meu ? [currentUser] : fin2Lista()).map(u=>`<div class="kpi"><div class="lbl">${esc(u.nome)} — saldo para pagamentos</div><div class="val">MZN ${num2(fundoSaldo(u.id))}</div><div class="sub">recebido ${num2(fundoRecebido(u.id))} · pago ${num2(fundoPago(u.id))}${transferencias.some(t=>t.destinatarioId===u.id&&t.estado==='Enviada')?' · <b>por confirmar '+num2(transferencias.filter(t=>t.destinatarioId===u.id&&t.estado==='Enviada').reduce((s,t)=>s+t.valor,0))+'</b>':''}</div></div>`).join('');
   return `<div class="kpi-row">${saldos || '<div class="muted-note">Sem Financeiro nível 2 activo.</div>'}</div>
   <div class="card"><div class="row-flex" style="justify-content:space-between;flex-wrap:wrap;"><h3 style="margin:0;">Envios de fundos para pagamentos</h3><button class="btn sm ghost" onclick="finTab='despPagas';go('financeiro')">📊 Relatório de despesas pagas</button>${ehTesoureiro()?`<button class="btn solid" onclick="fundosEnviar()">+ Enviar fundos</button>`:''}</div>
     <div class="csub">A tesoureira envia o valor discriminando as requisições a pagar e anexa o comprovativo. O valor fica disponível para a Financeira pagar; ao pagar cada requisição ela anexa o comprovativo do pagamento.</div>
-    <div class="table-wrap"><table><thead><tr><th>Nº</th><th>Data</th><th>Para</th><th>Método / ref.</th><th>Requisições</th><th>Valor</th><th></th></tr></thead><tbody>
+    <div class="table-wrap"><table><thead><tr><th>Nº</th><th>Data</th><th>Para</th><th>Método / ref.</th><th>Requisições</th><th>Valor</th><th>Recebido</th><th></th></tr></thead><tbody>
     ${lista.map(t=>`<tr><td>${esc(t.numero)}</td><td class="cell-sub">${fmtDate(t.data)}</td><td class="cell-name">${esc(t.destinatarioNome)}<div class="cell-sub">por ${esc(t.enviadoPor||'')}</div></td><td class="cell-sub">${esc(t.metodo)}${t.referencia?' · '+esc(t.referencia):''}</td>
-      <td class="cell-sub">${(t.itens||[]).map(i=>`${esc(i.numero)} (${num2(i.valor)})`).join('<br>')}</td><td><b>MZN ${num2(t.valor)}</b></td><td><button class="btn sm ghost" onclick="anexoVer('${t.comprovativoId}')">📎 Comprovativo</button></td></tr>`).join('') || `<tr><td colspan="7"><div class="empty">Ainda não há envios de fundos.</div></td></tr>`}</tbody></table></div></div>`;
+      <td class="cell-sub">${(t.itens||[]).map(i=>{const rq=requisicoes.find(x=>x.id===i.id);return `${esc(i.numero)} · ${esc(i.fornecedor||'')} · <b>${num2(i.valor)}</b> ${rq&&rq.paga?'✅ paga':''}`;}).join('<br>')}</td><td><b>MZN ${num2(t.valor)}</b></td><td>${t.estado==='Recebida'?`<span class="tag green">Recebido</span><div class="cell-sub">${esc(t.recebidaPor||'')}<br>${t.recebidaEm?fmtDate(t.recebidaEm.slice(0,10)):''}</div>`:(ehFin2()&&t.destinatarioId===currentUser.id?`<button class="btn sm solid" onclick="fundosAceitar('${t.id}')">Confirmar recepção</button>`:'<span class="tag amber">Por confirmar</span>')}</td><td><button class="btn sm ghost" onclick="anexoVer('${t.comprovativoId}')">📎 Comprovativo do envio</button></td></tr>`).join('') || `<tr><td colspan="8"><div class="empty">Ainda não há envios de fundos.</div></td></tr>`}</tbody></table></div></div>
+  <div class="card"><h3>Relatório de pagamento de requisições (despesas)</h3><div class="csub">Período: <b>${relReqDados().pd.nome}</b> · ${relReqDados().linhas.length} paga(s) · MZN ${num2(relReqDados().total)}</div>
+    <div class="toolbar"><select onchange="relRQ.tipo=this.value;render()">${[['dia','Hoje'],['semana','Últimos 7 dias'],['mes','Este mês'],['semestre','Últimos 6 meses'],['ano','Este ano'],['custom','Intervalo personalizado']].map(([v,l])=>`<option value="${v}" ${relRQ.tipo===v?'selected':''}>${l}</option>`).join('')}</select>
+    ${relRQ.tipo==='custom'?`<input type="date" value="${relRQ.de}" onchange="relRQ.de=this.value;render()"><input type="date" value="${relRQ.ate}" onchange="relRQ.ate=this.value;render()">`:''}
+    <button class="btn" onclick="imprimirRelReq()">🖶 Imprimir</button></div>${relReqTabela(relReqDados(),true)}</div>`;
 }
 /* ---- pagamento da requisição (tesoureira/director directamente; Financeira 2 a partir do seu saldo) — comprovativo obrigatório ---- */
 function reqPagar(id){
