@@ -1678,7 +1678,7 @@ function cardLimparTeste(){
     <button class="btn danger" type="button" id="lt-go" onclick="limparTeste()">Limpar dados de teste</button> <span class="cell-sub" id="lt-st"></span></div>`;
 }
 async function limparTeste(){
-  if(!currentUser || currentUser.role!=='admin') return;
+  if(!ehDirector()) return;
   const gs = Object.keys(LIMPAR_GRUPOS).filter(k=>el('lt-'+k) && el('lt-'+k).checked);
   if(!gs.length){ toast('⚠️ Escolha o que limpar.'); return; }
   if(gs.includes('caixa') && !gs.includes('clinico') && !confirm('Vai apagar o caixa mas manter os pacientes. As consultas e facturas ligadas deixam de coincidir. Continuar?')) return;
@@ -1715,6 +1715,7 @@ function cardApagarConsultas(){
     <button class="btn danger" type="button" id="apg-go" onclick="apgApagar()" disabled style="margin-top:10px;">Seleccione consultas para apagar</button> <span class="cell-sub" id="apg-st"></span></div>`;
 }
 async function apgApagar(){
+  if(!ehDirector()) return;
   if(!currentUser || currentUser.role!=='admin' || !apgSel.size) return;
   const ids = [...apgSel].filter(id=>appointments.some(a=>a.id===id) && !apgTemInternamento(appointments.find(a=>a.id===id)));
   if(!ids.length) return;
@@ -2370,6 +2371,9 @@ async function autDecidir(id, d){
   const tipo = inv.aut.tipo, comoDir = dir, vp = Number(inv.aut.valorAutorizado)||0, base = Number(inv.valor)||0;
   const itens = tipo==='subsidiado' ? autItensIsencao(inv, inv.aut) : [], somaItens = r2(itens.reduce((t,x)=>t+x.v,0));
   const pre = new Set(inv.aut.isentos || itens.map(x=>x.k));
+  const outros = tipo==='subsidiado' ? invoices.filter(o=>o.id!==id && o.estado==='Pendente' && !autActiva(o) && String(o.pacienteNid||'')===String(inv.pacienteNid||'') && inv.pacienteNid && valorPacienteDe(o)>0 && (!o.pagador||o.pagador.tipo==='individual')) : [];
+  const outrosIt = outros.map(o=>({o, itens:autItensIsencao(o)}));
+  const calcIsencao = (o, its, v, pref)=>{ const sel = its.filter(x=>v[pref+x.k]); if(!sel.length) return null; const soma = r2(sel.reduce((t,x)=>t+x.v,0)), tot = r2(its.reduce((t,x)=>t+x.v,0)), vpo = valorPacienteDe(o), isento = tot>0 ? r2(Math.min(vpo, soma*vpo/tot)) : vpo; return {sel, isento, vpo}; };
   const executar = async (v)=>{
     const agora = new Date().toISOString(), a = {...inv.aut};
     let isentos = itens.filter(x=>v['it'+x.k]);
@@ -2388,12 +2392,20 @@ async function autDecidir(id, d){
     try{ await Store.claim('invoices', id, 'autEstado', est, novo); }catch(e){ toast('⚠️ Este pedido já foi decidido.'); return; }
     await Store.setDoc('invoices', id, {aut:a});
     if(libertar) await espLibertar(inv);
+    for(const {o, itens:its} of outrosIt){   // restantes serviços, exames e procedimentos do paciente escolhidos na mesma autorização
+      const ci = calcIsencao(o, its, v, 'o'+o.id+'_'); if(!ci) continue;
+      const ao = {tipo:'subsidiado', motivo:a.motivo, fundamento:a.fundamento, parceiro:a.parceiro||'', anexoId:a.anexoId||'', anexoNome:a.anexoNome||'', parcelas:[], valorAutorizado:ci.vpo, isentos:ci.sel.map(x=>x.k), isentosNomes:ci.sel.map(x=>x.nome), valorIsento:ci.isento, entrada:r2(ci.vpo-ci.isento), pedidoPor:a.pedidoPor, pedidoEm:a.pedidoEm, adminPor:a.adminPor, adminEm:a.adminEm, adminNota:a.adminNota||'', ...(a.dirPor?{dirPor:a.dirPor, dirEm:a.dirEm, dirNota:a.dirNota}:{})};
+      const totalO = ao.entrada===0, libO = totalO && (novo==='Autorizada' || !autVedado()); if(libO) ao.liberado = true;
+      await Store.setDoc('invoices', o.id, {aut:ao, autEstado:novo, autRecusa:''}); if(libO) await espLibertar(o);
+      audit('autorizacao_admin','Pagamento especial', o.pacienteNome||'', `Subsídio · ${o.servico||''} · isento ${fmtMZN(ao.valorIsento)}`);
+    }
     if(comoDir && v.vedar && !autVedado()){ await Store.setDoc('config','main',{autAdminVedado:true, autAdminVedadoPor:currentUser.nome, autAdminVedadoEm:agora}); audit('autorizacao_vedada','Administrador','', 'O Administrador deixa de poder autorizar sem o visto do Director'); }
     audit(novo==='Autorizada'?'autorizacao_visada':'autorizacao_admin','Pagamento especial', inv.pacienteNome||'', `${ESP_TIPOS[a.tipo]} · ${fmtMZN(a.valorAutorizado)}${tipo==='subsidiado'?' · isento '+fmtMZN(a.valorIsento):''}${libertar?' · serviço libertado':''}`);
     toast(novo==='Autorizada' ? '✅ Autorizado e visado.'+(libertar?' O atendimento já pode começar.':' A Recepção emite o documento e cobra a parte não isenta.') : '✅ Autorizado.'+(libertar?' O atendimento já pode começar; segue para o visto do Director.':' Segue para o visto do Director.'));
   };
   const secs = [];
-  if(tipo==='subsidiado') secs.push({h:'Itens que o paciente fica isento de pagar', f:itens.map(x=>({id:'it'+x.k, l:`${x.nome} — ${fmtMZN(x.v)}`, t:'check'}))});
+  if(tipo==='subsidiado') secs.push({h:`${inv.servico||'Serviço'} — itens que o paciente fica isento de pagar`, f:itens.map(x=>({id:'it'+x.k, l:`${x.nome} — ${fmtMZN(x.v)}`, t:'check'}))});
+  outrosIt.forEach(({o, itens:its})=>secs.push({h:`Outros serviços do paciente: ${o.servico||o.tipo||''}`, f:its.map(x=>({id:'o'+o.id+'_'+x.k, l:`${x.nome} — ${fmtMZN(x.v)}`, t:'check'}))}));
   const rotulo = est==='AutorizadaAdmin' ? 'Nota do Director' : (comoDir ? 'Nota do Director' : 'Nota explicativa para o Director');
   const f2 = [{id:'nota', l:rotulo+' *', t:'area'}];
   if(comoDir && !autVedado()) f2.push({id:'vedar', l:'Vedar o Administrador de autorizar futuros pedidos sem o meu visto prévio', t:'check'});
@@ -2461,6 +2473,48 @@ function espReceber(id, n){
 const planoRecebidoDesde = d => recebimentosPlano.filter(r=>(r.pagoEm||'')>d);
 function subsDesde(d){ return invoices.filter(i=>i.estado==='Pago' && i.especial && (i.pagoEm||i.emitidaEm||'')>d).map(i=>({doc:i.numero, paciente:i.pacienteNome||'', tipo:ESP_TIPOS[i.especial.tipo], valor:i.especial.valorDiferido, autorizou:i.especial.adminPor||'', visto:i.especial.dirPor||''})); }
 const subsHtml = (arr, comMargem)=> `<h4 style="margin:${comMargem?'12px':'6px'} 0;">Subsidiados, créditos e parcelados (${arr.length})</h4>${arr.length?arr.map(s=>`<div style="font-size:13px;margin:3px 0;">${esc(s.tipo)} · <b>${esc(s.paciente)}</b> · ${esc(s.doc)} · ${fmtMZN(s.valor)} <span class="cell-sub">(aut. ${esc(s.autorizou)} · visto ${esc(s.visto)})</span></div>`).join(''):'<div class="cell-sub">Nenhum neste turno.</div>'}`;
+
+/* ================= ANULAR / EDITAR FACTURA (Administrador) ================= */
+const podeAnularDoc = ()=> !!currentUser && currentUser.role==='admin';
+function docAnular(id){
+  if(!podeAnularDoc()) return;
+  const i = invoices.find(x=>x.id===id); if(!i || i.estado!=='Pago' || !i.numero) return;
+  if(recebimentosPlano.some(r=>r.invoiceId===id)){ toast('⚠️ Já foram recebidas parcelas deste documento. Resolva os recibos antes de anular.'); return; }
+  if(Number(i.valorEntidade)>0 && entPago(i)>0){ toast('⚠️ A entidade já pagou parte desta factura. Anule primeiro o recebimento.'); return; }
+  gmodal(`Anular ${i.tipoDoc||'documento'} ${i.numero} — ${i.pacienteNome||''}`, [{id:'m', label:'Razão do cancelamento *', type:'textarea'}], 'Anular documento', async v=>{
+    const motivo = v.m.trim(); if(motivo.length<5){ toast('⚠️ Explique a razão do cancelamento.'); return false; }
+    try{ await Store.claim('invoices', id, 'estado', 'Pago', 'Anulada'); }catch(e){ toast('⚠️ Este documento já foi anulado.'); return; }
+    await Store.setDoc('invoices', id, {anulacaoMotivo:motivo, anuladaPor:currentUser.nome, anuladaEm:new Date().toISOString(), valorAnulado:valorPacienteDe(i)});
+    audit('documento_anulado', i.tipoDoc||'Documento', i.numero, `${fmtMZN(i.valor)} · motivo: ${motivo}`);
+    toast('✅ Documento anulado. O número e o histórico ficam preservados.');
+  }, 'O documento fica no arquivo como ANULADO, com a razão, quem anulou e quando, e consta do relatório. Os valores deixam de contar nas receitas.');
+}
+function docEditar(id){
+  if(!podeAnularDoc()) return;
+  const i = invoices.find(x=>x.id===id); if(!i || i.estado!=='Pago' || !i.numero) return;
+  gmodal(`Editar ${i.tipoDoc||'documento'} ${i.numero}`, [
+    {id:'nome', label:'Nome do paciente', val:i.pacienteNome||''}, {id:'nid', label:'NID', val:i.pacienteNid||''}, {id:'serv', label:'Descrição do serviço', val:i.servico||''},
+    {id:'m', label:'Razão da correcção *', type:'textarea'}], 'Guardar correcção', async v=>{
+    const motivo = v.m.trim(); if(motivo.length<5){ toast('⚠️ Explique a razão da correcção.'); return false; }
+    const novo = {pacienteNome:v.nome.trim(), pacienteNid:v.nid.trim(), servico:v.serv.trim()};
+    const antes = {pacienteNome:i.pacienteNome||'', pacienteNid:i.pacienteNid||'', servico:i.servico||''};
+    if(Object.keys(novo).every(k=>novo[k]===antes[k])){ toast('Nada foi alterado.'); return false; }
+    const edicoes = [...(i.edicoes||[]), {em:new Date().toISOString(), por:currentUser.nome, motivo, antes, depois:novo}];
+    await Store.setDoc('invoices', id, {...novo, edicoes});
+    audit('documento_editado', i.tipoDoc||'Documento', i.numero, `motivo: ${motivo}`); toast('✅ Correcção registada (o histórico fica no documento).');
+  }, 'Só se corrigem dados de identificação e a descrição. Para mudar valores, anule o documento e emita outro.');
+}
+function relAnulacoesHtml(r){
+  const an = r.anuladas||[], ed = r.editadas||[];
+  const lin = (x)=>`<div><span>${esc(x.numero)} · ${esc(x.paciente)} — <small>${esc(x.motivo)} (${esc(x.por)}, ${fmtDate(x.dia)})</small></span><b>${fmtMZN(x.valor)}</b></div>`;
+  return `<div class="doc-totais" style="width:100%;margin:0 0 12px;"><div style="font-weight:700;"><span>Documentos anulados (${an.length})</span><b>${fmtMZN(an.reduce((t,x)=>t+x.valor,0))}</b></div>${an.map(lin).join('') || '<div><span>—</span><b>—</b></div>'}</div>
+    <div class="doc-totais" style="width:100%;margin:0 0 12px;"><div style="font-weight:700;"><span>Documentos corrigidos (${ed.length})</span><b></b></div>${ed.map(x=>`<div><span>${esc(x.numero)} · ${esc(x.paciente)} — <small>${esc(x.motivo)} (${esc(x.por)}, ${fmtDate(x.dia)})</small></span><b></b></div>`).join('') || '<div><span>—</span><b>—</b></div>'}</div>`;
+}
+function relAnulacoesDados(dentro){
+  const anuladas = invoices.filter(i=>i.estado==='Anulada' && i.numero && i.anuladaEm && dentro(diaLocal(i.anuladaEm))).map(i=>({numero:i.numero, paciente:i.pacienteNome||'', valor:Number(i.valorAnulado!==undefined?i.valorAnulado:valorPacienteDe(i))||0, motivo:i.anulacaoMotivo||'', por:i.anuladaPor||'', dia:diaLocal(i.anuladaEm)}));
+  const editadas = []; invoices.filter(i=>i.numero && (i.edicoes||[]).length).forEach(i=>i.edicoes.filter(e=>dentro(diaLocal(e.em))).forEach(e=>editadas.push({numero:i.numero, paciente:i.pacienteNome||'', motivo:e.motivo, por:e.por, dia:diaLocal(e.em)})));
+  return {anuladas, editadas};
+}
 
 /* ================= MODELOS POR ESPECIALIDADE (Oftalmologia, Relatório médico, Aconselhamento) ================= */
 let receitasOculos = [], relatoriosMedicos = [], consentimentos = [];
@@ -4145,6 +4199,7 @@ function openPagamento(invId){
 function reimprimirDocumento(id){
   if(!['admin','recepcao','financeiro'].includes(currentUser.role)) return;
   const i = invoices.find(x=>x.id===id);
+  if(i && i.estado==='Anulada'){ toast('Documento anulado — não pode ser reimpresso como válido.'); return; }
   if(i && i.numero){ audit('segunda_via', 'Factura', i.numero, 'impressão de 2.ª via'); imprimirDocumentoCaixa(i, true); }
 }
 
@@ -5758,7 +5813,7 @@ function relatorioFin(per){
   desp.forEach(d=>{ const c = d.categoria||'Outras'; const o = porCat[c] = porCat[c] || {base:0, iva:0, total:0}; o.base += Number(d.base!==undefined?d.base:d.valor)||0; o.iva += Number(d.ivaValor)||0; o.total += despTotal(d); });
   const recPac = Object.values(porTipo).reduce((t,v)=>t+v,0), totDesp = desp.reduce((t,d)=>t+despTotal(d),0);
   return {pd, porTipo, porMetodo, recPac, factEnt, recEnt, porCat, totDesp, ivaDesp: desp.reduce((t,d)=>t+(Number(d.ivaValor)||0),0), resultado: r2(recPac+recEnt-totDesp),
-    espSub, espCred, espN:espDoc.length, espAberto:r2(invoices.reduce((t,i)=>t+espSaldo(i),0)), aberto: invoices.reduce((t,i)=>t+porCobrar(i),0), aPagar: despesas.filter(d=>d.estado==='Pendente').reduce((t,d)=>t+despTotal(d),0)};
+    ...relAnulacoesDados(dentro), espSub, espCred, espN:espDoc.length, espAberto:r2(invoices.reduce((t,i)=>t+espSaldo(i),0)), aberto: invoices.reduce((t,i)=>t+porCobrar(i),0), aPagar: despesas.filter(d=>d.estado==='Pendente').reduce((t,d)=>t+despTotal(d),0)};
 }
 function faturacaoPorEntidade(pd){
   const m = {};
@@ -5770,6 +5825,7 @@ function relatorioHtml(r){
   const linhas = o => Object.entries(o).map(([k,v])=>`<div><span>${esc(k)}</span><b>${fmtMZN(v)}</b></div>`).join('') || '<div><span>—</span><b>—</b></div>';
   return `<div class="doc-totais" style="width:100%;margin:0 0 12px;"><div style="font-weight:700;"><span>Receitas recebidas de pacientes</span><b>${fmtMZN(r.recPac)}</b></div>${linhas(r.porTipo)}</div>
     <div class="doc-totais" style="width:100%;margin:0 0 12px;"><div style="font-weight:700;"><span>Por método de pagamento</span><b></b></div>${linhas(r.porMetodo)}</div>
+    ${relAnulacoesHtml(r)}
     <div class="doc-totais" style="width:100%;margin:0 0 12px;"><div style="font-weight:700;"><span>Subsidiados, créditos e parcelados (${r.espN} documento(s))</span><b></b></div><div><span>Subsidiado (não cobrado)</span><b>${fmtMZN(r.espSub)}</b></div><div><span>Concedido a crédito / parcelado</span><b>${fmtMZN(r.espCred)}</b></div><div><span>Créditos e parcelas em aberto (total)</span><b>${fmtMZN(r.espAberto)}</b></div></div>
     <div class="doc-totais" style="width:100%;margin:0 0 12px;"><div style="font-weight:700;"><span>Empresas e seguradoras</span><b></b></div><div><span>Facturado no período</span><b>${fmtMZN(r.factEnt)}</b></div><div><span>Recebido no período</span><b>${fmtMZN(r.recEnt)}</b></div><div><span>Total em aberto (a cobrar)</span><b>${fmtMZN(r.aberto)}</b></div></div>
     <div class="doc-totais" style="width:100%;margin:0 0 12px;"><div style="font-weight:700;"><span>Mapa de facturação por entidade (facturado no período)</span><b></b></div>${peHtml || '<div><span>—</span><b>—</b></div>'}</div>
@@ -7024,7 +7080,7 @@ function viewConfig(){
   const c = configDoc || {};
   return `
   <div class="page-head"><div><h1>Configurações</h1><div class="desc">Dados da clínica e preferências do sistema</div></div></div>
-  ${currentUser.role==='admin' ? cardLimparTeste()+cardApagarConsultas()+cardTabela2026()+cardTabelaFarmacia()+cardImportExcel() : ''}
+  ${currentUser.role==='admin' ? (ehDirector() ? cardLimparTeste()+cardApagarConsultas() : '')+cardTabela2026()+cardTabelaFarmacia()+cardImportExcel() : ''}
   <div class="grid-2">
     <div class="card">
       <h3>Dados da clínica</h3>
@@ -7095,11 +7151,11 @@ function viewConfig(){
     </table></div>
   </div>
 
-  <div class="card" style="margin-top:14px;border-color:var(--danger-tint);">
+  ${ehDirector() ? `<div class="card" style="margin-top:14px;border-color:var(--danger-tint);">
     <h3 style="color:var(--danger);">Zona de risco</h3>
     <div class="csub">Reiniciar o sistema apaga permanentemente (o registo de auditoria é preservado) todos os pacientes, consultas, facturas, receitas, stock, vendas, despesas, funcionários, especialidades e utilizadores — volta ao estado inicial (configuração de primeira utilização).</div>
     <button class="btn danger" onclick="resetSistema()">🗑 Reiniciar sistema do zero</button>
-  </div>`;
+  </div>` : ''}`;
 }
 async function saveAllPrecos(){
   const inputs = document.querySelectorAll('.esp-preco-input');
@@ -7111,6 +7167,7 @@ async function saveAllPrecos(){
   toast("✅ Preços actualizados.");
 }
 async function resetSistema(){
+  if(!ehDirector()) return;
   if(!confirm("ATENÇÃO: isto vai apagar PERMANENTEMENTE todos os dados do sistema — pacientes, consultas, facturas, receitas, stock, vendas, despesas, funcionários, especialidades e utilizadores. Esta ação não pode ser desfeita. Continuar?")) return;
   const confirmText = prompt('Para confirmar, escreva exactamente: APAGAR TUDO');
   if(confirmText !== 'APAGAR TUDO'){ toast("Reset cancelado — texto de confirmação não corresponde."); return; }
@@ -7763,6 +7820,7 @@ function stopAuditListener(){ if(auditUnsub){ try{ auditUnsub(); }catch(e){} aud
 const ACAO_LABEL = {criar:'Criou', editar:'Editou', apagar:'Apagou', login:'Entrou', logout:'Saiu', login_falhado:'Tentativa de login falhada', login_bloqueado:'Login bloqueado',
   password_alterada:'Alterou a password', consultas_teste_apagadas:'Apagou consultas de teste', password_redefinida:'Redefiniu password', password_inicial:'Definiu password inicial', pagamento_confirmado:'Confirmou pagamento',
   baixa_stock:'Baixa de stock', pacientes_importados:'Importou pacientes', importacao_excel:'Importou ficheiro Excel', procedimento_directo:'Registou procedimento directo', backup_exportado:'Exportou cópia de segurança', backup_restaurado:'Restaurou cópia de segurança',
+  documento_anulado:'Anulou documento', documento_editado:'Corrigiu documento', autorizacao_pedida:'Pediu pagamento especial', autorizacao_admin:'Autorizou pagamento especial', autorizacao_visada:'Deu visto a pagamento especial', autorizacao_recusada:'Recusou pagamento especial', autorizacao_vedada:'Vedou autorizações do Administrador', autorizacao_desvedada:'Levantou a restrição ao Administrador',
   alta_internamento:'Alta médica de internamento', conta_facturada:'Facturou conta de internamento', movimento_stock:'Movimento de stock', sistema_reiniciado:'Reiniciou o sistema', configuracao_inicial:'Configuração inicial', documento_emitido:'Emitiu documento (VD / factura)', segunda_via:'Imprimiu 2.ª via',
   recebimento_entidade:'Registou recebimento de entidade', precos_entidade:'Gravou preços contratuais', despesa_editada:'Editou despesa', despesa_anulada:'Anulou despesa',
   despesa_paga:'Pagou despesa', pagamento_inss:'Pagou o INSS', parametros_fiscais:'Alterou parâmetros fiscais'};
@@ -7886,7 +7944,7 @@ function viewDocumentos(){
   <div class="card">
     <div class="toolbar">
       <input id="doc-q" type="text" class="grow" placeholder="Nº do documento, paciente ou entidade…" oninput="filtrarDocumentos()">
-      <select id="doc-tipo" onchange="filtrarDocumentos()"><option value="">VD e Facturas</option><option value="VD">Só VD</option><option value="Factura">Só Facturas</option></select>
+      <select id="doc-tipo" onchange="filtrarDocumentos()"><option value="">VD e Facturas</option><option value="VD">Só VD</option><option value="Factura">Só Facturas</option><option value="Subsídio">Só autorizações de subsídio</option></select>
       <select id="doc-ent" onchange="filtrarDocumentos()"><option value="">Qualquer cobrança</option><option value="Pendente">A cobrar à entidade</option><option value="Parcial">Parcialmente paga</option><option value="Pago">Entidade já pagou</option></select>
       <input id="doc-de" type="date" onchange="filtrarDocumentos()" style="padding:7px 10px;border-radius:8px;border:1.5px solid var(--border);font-size:12.5px;background:var(--surface-2);">
       <input id="doc-ate" type="date" onchange="filtrarDocumentos()" style="padding:7px 10px;border-radius:8px;border:1.5px solid var(--border);font-size:12.5px;background:var(--surface-2);">
@@ -7897,7 +7955,7 @@ function viewDocumentos(){
     </table></div>
   </div>`;
 }
-function documentosEmitidos(){ return invoices.filter(i=>i.numero && i.estado==='Pago').sort((a,b)=>(b.emitidaEm||b.pagoEm||'').localeCompare(a.emitidaEm||a.pagoEm||'')); }
+function documentosEmitidos(){ return invoices.filter(i=>i.numero && (i.estado==='Pago'||i.estado==='Anulada')).sort((a,b)=>(b.emitidaEm||b.pagoEm||'').localeCompare(a.emitidaEm||a.pagoEm||'')); }
 function documentosRows(list){
   if(!list.length) return `<tr><td colspan="9"><div class="empty">Sem documentos.</div></td></tr>`;
   return list.slice(0,300).map(i=>{
@@ -7906,7 +7964,7 @@ function documentosRows(list){
       <td><span class="tag ${i.tipoDoc==='Factura'?'amber':'green'}">${esc(i.tipoDoc||'—')}</span></td>
       <td>${pg.tipo==='individual'?'<span class="cell-sub">—</span>':esc(pg.entidadeNome)}</td><td><b>${fmtMZN(i.valor)}</b></td><td>${fmtMZN(valorPacienteDe(i))}</td>
       <td>${ve>0 ? `${fmtMZN(ve)} ${entTag(i)}` : '—'}</td>
-      <td><button class="btn sm ghost" onclick="reimprimirDocumento('${i.id}')">🖶 2.ª via</button></td></tr>`;
+      <td>${i.estado==='Anulada' ? `<span class="tag red">ANULADO</span><div class="cell-sub">${esc(i.anulacaoMotivo||'')}<br>${esc(i.anuladaPor||'')} · ${i.anuladaEm?fmtDate(diaLocal(i.anuladaEm)):''}</div>` : ''}${(i.edicoes||[]).length?`<span class="tag amber" title="Documento corrigido">corrigido ×${i.edicoes.length}</span> `:''}<button class="btn sm ghost" onclick="reimprimirDocumento('${i.id}')">🖶 2.ª via</button>${podeAnularDoc() && i.estado==='Pago' ? ` <button class="btn sm ghost" onclick="docEditar('${i.id}')">✎ Editar</button> <button class="btn sm danger" onclick="docAnular('${i.id}')">Anular</button>` : ''}</td></tr>`;
   }).join('');
 }
 function filtrarDocumentos(){
