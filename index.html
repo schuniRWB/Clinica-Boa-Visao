@@ -474,6 +474,7 @@ tbody tr:last-child td{border-bottom:none;}
         <div class="field" id="uf-username-box"><label>Utilizador (para entrar)</label><input id="uf-username" type="text" autocapitalize="none" spellcheck="false" placeholder="ex: maria.silva"></div>
         <div class="field"><label>Perfil</label><select id="uf-role" onchange="ufRoleChanged()"></select></div>
       </div>
+      <div class="field" id="uf-nivel-box" style="display:none;"><label id="uf-nivel-label">Nível</label><select id="uf-nivel"></select></div>
       <div class="field" id="uf-esp-box" style="display:none;"><label>Especialidade do médico *</label><select id="uf-esp"></select></div>
       <div class="field" id="uf-tel-box" style="display:none;"><label>Telemóvel do médico (para o aviso das consultas por SMS / WhatsApp)</label><input id="uf-tel" type="tel" inputmode="tel" placeholder="84 123 4567" autocomplete="off"></div>
       <div class="field"><label id="uf-email-label">Email</label><input id="uf-email" type="email" autocapitalize="none" spellcheck="false" placeholder="nome@exemplo.com"></div>
@@ -1176,6 +1177,12 @@ tbody tr:last-child td{border-bottom:none;}
         <div class="field"><label>Salário base (MZN)</label><input id="ff-salario" type="number"></div>
         <div class="field"><label>Faltas no mês</label><input id="ff-faltas" type="number" value="0"></div>
       </div>
+      <div style="border-top:1px solid var(--line,#ddd);margin-top:10px;padding-top:10px;">
+        <div class="row-flex" style="justify-content:space-between;"><b>Dependentes (para o IRPS)</b><button class="btn sm" type="button" onclick="depAdd()">+ Dependente</button></div>
+        <div class="csub">Só contam para a dedução os dependentes aceites pelo Código do IRPS (Lei 33/2007, art. 18.º): filhos, adoptados e enteados menores; filhos maiores até 25 anos que estudam (12.ª classe, ensino secundário ou superior) ou fizeram serviço militar; filhos incapacitados; menores sob tutela; e pais/avós a cargo e incapazes para o trabalho. O cônjuge não é dependente. Em todos os casos o dependente não pode ter rendimentos acima de 12 salários mínimos por ano.</div>
+        <div id="ff-deps"></div>
+        <div class="csub" id="ff-deps-res"></div>
+      </div>
     </div>
     <div class="modal-foot">
       <button class="btn" onclick="closeModal('modal-funcionario')">Cancelar</button>
@@ -1430,14 +1437,14 @@ const Store = {
    -------------------------------------------------------------------- */
 const AUDIT_COLS = {patients:'Paciente', appointments:'Consulta', invoices:'Factura', users:'Utilizador', especialidades:'Especialidade',
   tratamentos:'Tratamento (catálogo)', exames:'Exame (catálogo)', tratamentosPrescritos:'Tratamento prescrito', pedidosExame:'Pedido de exames',
-  receitas:'Receita', prontuarios:'Prontuário', medicamentos:'Produto', vendas:'Venda', despesas:'Despesa', funcionarios:'Funcionário', salarios:'Folha de salários', assiduidade:'Assiduidade', adiantamentos:'Adiantamento', feriasPlano:'Férias', disciplinares:'Procedimento disciplinar', fundoManeio:'Fundo de maneio', reconciliacoes:'Reconciliação bancária', apuramentosIva:'Apuramento do IVA', config:'Configuração',
+  receitas:'Receita', prontuarios:'Prontuário', medicamentos:'Produto', vendas:'Venda', despesas:'Despesa', funcionarios:'Funcionário', requisicoes:'Requisição de pagamento', salarios:'Folha de salários', assiduidade:'Assiduidade', adiantamentos:'Adiantamento', feriasPlano:'Férias', disciplinares:'Procedimento disciplinar', fundoManeio:'Fundo de maneio', reconciliacoes:'Reconciliação bancária', apuramentosIva:'Apuramento do IVA', config:'Configuração',
   empresas:'Empresa', seguradoras:'Seguradora', internamentos:'Internamento', cardex:'Prescrição (cardex)', camas:'Cama', referenciacoes:'Encaminhamento', beneficiarios:'Beneficiário', recebimentos:'Recebimento de entidade', tratamentosInt:'Tratamento (internamento)', planos:'Plano terapêutico'};
 const AUDIT_KEYS = ['estado','estadoPagamento','valor','total','preco','stock','stockMin','role','ativo','metodo','username','tipo','data','hora','medicoId','salarioBase','faltasMes','nome','valorEntidade','valorPaciente','estadoEntidade','comparticipacao','tipoDoc','destino','internamentoId','entidadePago','validado','acordoFim','limiteAnual'];
 const AUDIT_HIDE = ['passwordHash','salt','pin'];
 let auditSuspended = false;
 function auditMem(col){
   return ({patients, appointments, invoices, users, especialidades, tratamentos, exames, tratamentosPrescritos, pedidosExame, receitas, prontuarios,
-    medicamentos, vendas, despesas, funcionarios, salarios, assiduidade, adiantamentos, feriasPlano, disciplinares, fundoManeio, reconciliacoes, apuramentosIva, empresas, seguradoras, internamentos, cardex, camas, referenciacoes, beneficiarios, tratamentosInt, planos, config:[configDoc]})[col] || null;
+    medicamentos, vendas, despesas, funcionarios, requisicoes, salarios, assiduidade, adiantamentos, feriasPlano, disciplinares, fundoManeio, reconciliacoes, apuramentosIva, empresas, seguradoras, internamentos, cardex, camas, referenciacoes, beneficiarios, tratamentosInt, planos, config:[configDoc]})[col] || null;
 }
 function auditPick(col, o){
   const r = {};
@@ -1613,6 +1620,50 @@ function apgToggle(id, on){ if(on) apgSel.add(id); else apgSel.delete(id); apgAt
 function apgAtualizaBotao(){ const b = el('apg-go'); if(b){ b.disabled = !apgSel.size; b.textContent = apgSel.size ? `Apagar ${apgSel.size} consulta(s) seleccionada(s)` : 'Seleccione consultas para apagar'; } }
 function apgRefiltrar(){ el('apg-tbody').innerHTML = apgRows(); apgAtualizaBotao(); }
 function apgTodas(on){ apgLista().slice(0,300).filter(a=>!apgTemInternamento(a)).forEach(a=>on ? apgSel.add(a.id) : apgSel.delete(a.id)); apgRefiltrar(); }
+
+/* ================= LIMPAR DADOS DE TESTE (mantém catálogos e perfis) ================= */
+const LIMPAR_GRUPOS = {
+  clinico:{nome:'Pacientes e atendimento', txt:'pacientes, consultas, fila, prontuários, receitas, alertas, emails, pedidos de exames e tratamentos, internamentos (as camas ficam livres), encaminhamentos e beneficiários',
+    cols:['patients','appointments','queue','prontuarios','receitas','alertas','emails','tratamentosPrescritos','pedidosExame','referenciacoes','beneficiarios','internamentos','cardex','administracoes','diarioEnfermagem','sinaisVitais','passagensTurno','contasInt','tratamentosInt','internadosAtivos'], def:true},
+  caixa:{nome:'Caixa e vendas', txt:'facturas, VD e recibos, vendas da farmácia, recebimentos de entidades e movimentos de stock', cols:['invoices','vendas','recebimentos','movimentosStock'], def:true},
+  contab:{nome:'Contabilidade e RH de teste', txt:'despesas, requisições de pagamento, fundo de maneio, reconciliações, apuramentos de IVA, folhas de salários, assiduidade, adiantamentos, férias e procedimentos disciplinares (os funcionários ficam)', cols:['despesas','requisicoes','fundoManeio','reconciliacoes','apuramentosIva','salarios','assiduidade','adiantamentos','feriasPlano','disciplinares','presenca'], def:false},
+  numeracao:{nome:'Reiniciar a numeração', txt:'os números de pacientes (NID), facturas, receitas, etc. voltam a começar do 1', cols:['contadores'], def:true}
+};
+function cardLimparTeste(){
+  return `<div class="card" style="margin-bottom:14px;border-color:var(--danger,#c0392b);"><h3>Limpar dados de teste (início de produção)</h3>
+    <div class="csub">Apaga os registos de teste <b>sem apagar</b> exames, procedimentos, tratamentos, especialidades, produtos da farmácia (e o stock actual), empresas e seguradoras, funcionários, camas, configuração da clínica nem os perfis de utilizadores. O registo de auditoria também fica. Antes de apagar, o sistema descarrega uma cópia de segurança. Não se pode desfazer.</div>
+    ${Object.entries(LIMPAR_GRUPOS).map(([k,g])=>`<label style="display:flex;gap:8px;align-items:flex-start;margin:8px 0;font-size:13px;"><input type="checkbox" id="lt-${k}" ${g.def?'checked':''}><span><b>${g.nome}</b><br><span class="cell-sub">${g.txt}</span></span></label>`).join('')}
+    <div class="csub">Se limpar o caixa, convém também limpar os pacientes e reiniciar a numeração, para as facturas não ficarem a referir pacientes que já não existem. O stock dos produtos mantém-se como está: acerte-o na Farmácia se os testes o alteraram.</div>
+    <button class="btn danger" type="button" id="lt-go" onclick="limparTeste()">Limpar dados de teste</button> <span class="cell-sub" id="lt-st"></span></div>`;
+}
+async function limparTeste(){
+  if(!currentUser || currentUser.role!=='admin') return;
+  const gs = Object.keys(LIMPAR_GRUPOS).filter(k=>el('lt-'+k) && el('lt-'+k).checked);
+  if(!gs.length){ toast('⚠️ Escolha o que limpar.'); return; }
+  if(gs.includes('caixa') && !gs.includes('clinico') && !confirm('Vai apagar o caixa mas manter os pacientes. As consultas e facturas ligadas deixam de coincidir. Continuar?')) return;
+  const msg = `Vai apagar PERMANENTEMENTE: ${gs.map(k=>LIMPAR_GRUPOS[k].nome).join('; ')}.\n\nCatálogos, perfis, funcionários e configuração mantêm-se. Será descarregada uma cópia de segurança antes.\n\nPara confirmar, escreva: LIMPAR`;
+  if((prompt(msg)||'').trim()!=='LIMPAR'){ toast('Cancelado — nada foi apagado.'); return; }
+  const st = el('lt-st'), b = el('lt-go'); b.disabled = true; st.textContent = 'A preparar a cópia de segurança…';
+  try{ const bk = await montarBackup(); baixarFicheiro(`backup-antes-de-limpar-${todayStr()}.json`, JSON.stringify(bk)); }
+  catch(e){ b.disabled = false; st.textContent = '⚠️ Não foi possível criar a cópia de segurança — nada foi apagado.'; return; }
+  const cols = gs.flatMap(k=>LIMPAR_GRUPOS[k].cols), resumo = {};
+  auditSuspended = true;
+  try{
+    for(const col of cols){
+      st.textContent = 'A apagar '+col+'…';
+      const docs = await Store.getOnce(col, true);
+      if(docs.length){ await Store.bulkDelete(col, docs.map(d=>d.id)); resumo[col] = docs.length; }
+    }
+    if(gs.includes('clinico')){
+      for(const c of (await Store.getOnce('camas', true)).filter(c=>c.estado!=='Livre' && c.estado!=='Manutenção')) await Store.setDoc('camas', c.id, {estado:'Livre'});
+    }
+  }catch(e){ auditSuspended = false; b.disabled = false; st.textContent = '⚠️ Erro: '+e.message+' — repita a operação (parte já foi apagada).'; return; }
+  auditSuspended = false;
+  audit('dados_teste_limpos', 'Sistema', gs.join(','), Object.entries(resumo).map(([c,n])=>n+' '+c).join(', ').slice(0,300) || 'nada a apagar');
+  st.textContent = '✅ Concluído.'; toast('✅ Dados de teste apagados. A recarregar…', 5000);
+  setTimeout(()=>location.reload(), 1800);
+}
+
 function cardApagarConsultas(){
   return `<div class="card" style="margin-bottom:14px;border-color:var(--danger,#c0392b);"><h3>Apagar consultas de teste</h3>
     <div class="csub">Escolha as consultas que foram feitas só para testar e apague-as <b>sem reiniciar o sistema</b>. Apaga também o que está ligado a cada uma: facturas/contas, fila, prontuário, receitas, alertas, emails e pedidos de tratamento/exame. Os pacientes <b>não</b> são apagados. Não se pode desfazer: se precisar, faça antes uma cópia de segurança (cartão acima).</div>
@@ -1645,6 +1696,234 @@ async function apgApagar(){
   audit('consultas_teste_apagadas', 'Consultas', ids.length+' consulta(s)', `apagadas pelo administrador com os registos ligados: ${Object.entries(resumo).map(([c,n])=>n+' '+c).join(', ')||'nenhum'}`);
   apgSel.clear(); st.textContent = `✅ ${ids.length} consulta(s) apagada(s).`; toast(`✅ ${ids.length} consulta(s) de teste apagada(s), com os registos ligados.`, 6000);
   setTimeout(()=>{ if(currentUser && currentView==='config') render(); }, 800);
+}
+
+/* ================= REQUISIÇÕES INTERNAS DE PAGAMENTO =================
+   Fluxo: Financeiro (nível 2) emite → Tesoureiro (Financeiro nível 1) verifica a conformidade (e autoriza se a despesa for corrente e pontual)
+   → Administrador Director autoriza/rejeita (ou dá visto, se a tesoureira já autorizou). O Administrador da Clínica não tem acesso. */
+let requisicoes = [];
+const nivelDe = u => !u ? '' : (u.role==='admin' ? (u.nivel==='clinica' ? 'clinica' : 'director') : (u.role==='financeiro' ? (u.nivel==='1' ? '1' : '2') : ''));
+const ehDirector = ()=> !!currentUser && currentUser.role==='admin' && nivelDe(currentUser)==='director';
+const ehTesoureiro = ()=> !!currentUser && currentUser.role==='financeiro' && nivelDe(currentUser)==='1';
+const ehFin2 = ()=> !!currentUser && currentUser.role==='financeiro' && nivelDe(currentUser)==='2';
+const podeReq = ()=> ehDirector() || ehTesoureiro() || ehFin2();
+function roleLabel(u){
+  if(!u) return '';
+  if(u.role==='admin') return nivelDe(u)==='director' ? 'Administrador — Director' : 'Administrador da Clínica';
+  if(u.role==='financeiro') return nivelDe(u)==='1' ? 'Financeiro — Tesoureiro (nível 1)' : 'Financeiro (nível 2)';
+  return roleName(u.role);
+}
+const REQ_NATUREZA = {corrente:'Corrente e pontual', naocorrente:'Não corrente (só o Director autoriza)'};
+const REQ_FONTES = ['Transf. bancária','Cheque','Caixa'];
+const REQ_METODO = {'Transf. bancária':'Transferência bancária', 'Cheque':'Cheque', 'Caixa':'Numerário'};
+const num2 = n => Number(n||0).toLocaleString('pt-PT',{minimumFractionDigits:2, maximumFractionDigits:2});
+function reqPendentesMinhas(){
+  if(ehTesoureiro()) return requisicoes.filter(r=>r.estado==='Emitida');
+  if(ehDirector()) return requisicoes.filter(r=>r.estado==='Emitida' || r.estado==='Conforme' || (r.estado==='Autorizada' && r.autorizadoNivel==='tesoureira' && !r.vistoDirector));
+  if(ehFin2()) return requisicoes.filter(r=>r.estado==='Não conforme');
+  return [];
+}
+let _reqUltimo;
+function reqBadge(){
+  const b = document.querySelector('.sb-item[data-view="requisicoes"]'); if(!b) return;
+  const n = podeReq() ? reqPendentesMinhas().length : 0;
+  b.querySelectorAll('.req-badge').forEach(x=>x.remove());
+  if(n) b.insertAdjacentHTML('beforeend', ` <span class="tag red req-badge" style="margin-left:6px;">${n}</span>`);
+}
+function reqAvisar(){
+  reqBadge();
+  if(!currentUser || !podeReq()) return;
+  const n = reqPendentesMinhas().length;
+  if(n && (_reqUltimo===undefined || n>_reqUltimo)) toast(`📄 Tem ${n} requisição(ões) por tratar.`, 7000);
+  _reqUltimo = n;
+}
+function reqTotais(itens, imposto){
+  const lin = (itens||[]).map(i=>({qtd:Number(i.qtd)||0, descricao:String(i.descricao||'').trim(), preco:Number(i.preco)||0}));
+  const subtotal = r2(lin.reduce((t,i)=>t+r2(i.qtd*i.preco),0));
+  return {lin, subtotal, imposto:r2(imposto), total:r2(subtotal+r2(imposto))};
+}
+function reqTag(r){
+  const m = {'Emitida':'amber','Conforme':'blue','Não conforme':'red','Autorizada':'green','Rejeitada':'red','Cancelada':'grey'};
+  return `<span class="tag ${m[r.estado]||'grey'}">${r.estado}</span>${r.paga?' <span class="tag green">Paga</span>':''}`;
+}
+let reqFiltro = 'tratar';
+function reqSetFiltro(v){ reqFiltro = v; render(); }
+function viewRequisicoes(){
+  if(!podeReq()) return `<div class="card"><div class="empty">Sem acesso às requisições.</div></div>`;
+  const minhas = reqPendentesMinhas(), ids = new Set(minhas.map(r=>r.id));
+  const l = [...requisicoes].filter(r=>reqFiltro==='todas' || ids.has(r.id)).sort((a,b)=>(b.numero||'').localeCompare(a.numero||''));
+  return `<div class="page-head"><div><h1>Requisições de pagamento</h1><div class="desc">${ehFin2()?'Emita a requisição; a tesoureira verifica a conformidade e o Director autoriza.':ehTesoureiro()?'Verifique a conformidade. Pode autorizar despesas correntes e pontuais; as restantes são autorizadas pelo Director.':'Autorize ou rejeite as requisições. Se a tesoureira já autorizou, dê o seu visto.'}</div></div>
+    ${ehFin2()?`<div class="page-actions"><button class="btn solid" onclick="reqForm()">+ Nova requisição</button></div>`:''}</div>
+  <div class="tabs"><div class="tab ${reqFiltro==='tratar'?'active':''}" onclick="reqSetFiltro('tratar')">Por tratar (${minhas.length})</div><div class="tab ${reqFiltro==='todas'?'active':''}" onclick="reqSetFiltro('todas')">Todas (${requisicoes.length})</div></div>
+  <div class="card"><div class="table-wrap"><table><thead><tr><th>Nº</th><th>Data</th><th>Fornecedor</th><th>Propósito</th><th>Total</th><th>Natureza</th><th>Estado</th><th></th></tr></thead><tbody>
+  ${l.map(r=>`<tr><td>${esc(r.numero)}</td><td class="cell-sub">${fmtDate(r.elaboradoEm)}</td><td class="cell-name">${esc(r.fornecedor)}</td><td class="cell-sub">${esc((r.proposito||'').slice(0,60))}</td><td><b>MZN ${num2(r.total)}</b></td><td class="cell-sub">${r.natureza==='corrente'?'Corrente e pontual':'Não corrente'}</td>
+    <td>${reqTag(r)}${r.estado==='Rejeitada'||r.estado==='Não conforme'?`<div class="cell-sub" style="color:#b00;max-width:220px;">${esc(r.motivo||'')}</div>`:''}${r.vistoDirector?`<div class="cell-sub">Visto do Director${r.vistoDirector.nota?': '+esc(r.vistoDirector.nota):''}</div>`:''}</td>
+    <td style="white-space:nowrap;">${reqAcoes(r)}</td></tr>`).join('') || `<tr><td colspan="8"><div class="empty">${reqFiltro==='tratar'?'Nada por tratar.':'Ainda não há requisições.'}</div></td></tr>`}</tbody></table></div></div>`;
+}
+function reqAcoes(r){
+  const b = [`<button class="btn sm ghost" onclick="reqVer('${r.id}')">Ver</button>`], pend = r.estado==='Emitida' || r.estado==='Conforme';
+  if(ehFin2() && (r.estado==='Emitida' || r.estado==='Não conforme')){ b.push(`<button class="btn sm" onclick="reqForm('${r.id}')">Editar</button><button class="btn sm danger" onclick="reqCancelar('${r.id}')">Cancelar</button>`); }
+  if(ehTesoureiro() && r.estado==='Emitida'){ b.push(`<button class="btn sm solid" onclick="reqConforme('${r.id}')">Conforme</button><button class="btn sm danger" onclick="reqNaoConforme('${r.id}')">Não conforme</button>`); }
+  if(ehTesoureiro() && pend && r.natureza==='corrente'){ b.push(`<button class="btn sm solid" onclick="reqAutorizar('${r.id}')">Autorizar</button>`); }
+  if(ehDirector() && pend){ b.push(`<button class="btn sm solid" onclick="reqAutorizar('${r.id}')">Autorizar</button><button class="btn sm danger" onclick="reqRejeitar('${r.id}')">Rejeitar</button>`); }
+  if(ehDirector() && r.estado==='Autorizada' && r.autorizadoNivel==='tesoureira' && !r.vistoDirector){ b.push(`<button class="btn sm solid" onclick="reqVisto('${r.id}')">Dar visto</button>`); }
+  if(r.estado==='Autorizada' && !r.paga && (ehTesoureiro() || ehFin2())){ b.push(`<button class="btn sm" onclick="reqPagar('${r.id}')">Registar pagamento</button>`); }
+  if(r.estado==='Autorizada'){ b.push(`<button class="btn sm" onclick="reqImprimir('${r.id}')">🖶 Imprimir</button>`); }
+  return b.join(' ');
+}
+function reqVer(id){
+  const r = requisicoes.find(x=>x.id===id); if(!r || !podeReq()) return;
+  const lin = (r.itens||[]).map(i=>`${i.qtd} × ${esc(i.descricao)} — MZN ${num2(i.preco)}`).join('<br>');
+  const ev = (t,p,d,x)=>p?`<div>${t}: <b>${esc(p)}</b> <span class="cell-sub">${d?new Date(d).toLocaleString('pt-PT'):''}${x?' · '+esc(x):''}</span></div>`:'';
+  gmodal('Requisição '+r.numero, [], 'Fechar', ()=>true,
+    `<div><b>${esc(r.fornecedor)}</b> · NUIT ${esc(r.fornecedorNuit||'—')} · ${esc(r.fornecedorEndereco||'')}</div><div style="margin:8px 0;">${lin}</div>
+     <div>Imposto: MZN ${num2(r.imposto)} · <b>Total: MZN ${num2(r.total)}</b></div><div>Propósito: ${esc(r.proposito||'')}</div><div>Classificação: ${esc(r.classificacao||'')} · Fonte: ${esc(r.fontePagamento||'')}${r.chequeNo?' nº '+esc(r.chequeNo):''} · ${r.natureza==='corrente'?'Corrente e pontual':'Não corrente'}</div><hr>
+     ${ev('Elaborado por', r.elaboradoPor, r.elaboradoEm)}${ev('Verificado por', r.verificadoPor, r.verificadoEm, r.conformidade)}${ev('Autorizado por', r.autorizadoPor, r.autorizadoEm, r.autorizadoNivel==='director'?'Director':'Tesoureira')}${r.vistoDirector?ev('Visto do Director', r.vistoDirector.por, r.vistoDirector.em, r.vistoDirector.nota):''}${r.motivo?`<div style="color:#b00;">Motivo: ${esc(r.motivo)}</div>`:''}`);
+}
+/* ---- formulário de emissão ---- */
+let reqLinhaSeq = 0;
+function reqLinhaHtml(i){
+  const id = ++reqLinhaSeq;
+  return `<div class="field-row" data-rql="${id}" style="align-items:flex-end;"><div class="field" style="max-width:80px;"><label>Qtd</label><input class="rl-q" type="number" step="any" value="${i.qtd===undefined?'':i.qtd}" oninput="reqRecalc()"></div>
+    <div class="field" style="flex:3 1 200px;"><label>Descrição do item a comprar</label><input class="rl-d" type="text" value="${esc(i.descricao||'')}"></div>
+    <div class="field" style="max-width:120px;"><label>Preço</label><input class="rl-p" type="number" step="0.01" value="${i.preco===undefined?'':i.preco}" oninput="reqRecalc()"></div>
+    <div class="field" style="max-width:110px;"><label>Valor</label><div class="rl-v cell-sub" style="padding:8px 0;">0,00</div></div>
+    <button class="btn sm danger" type="button" onclick="this.closest('[data-rql]').remove();reqRecalc()">✕</button></div>`;
+}
+function reqLerLinhas(){ return [...document.querySelectorAll('#rq-itens [data-rql]')].map(r=>({qtd:r.querySelector('.rl-q').value, descricao:r.querySelector('.rl-d').value, preco:r.querySelector('.rl-p').value})); }
+function reqRecalc(){
+  const rows = [...document.querySelectorAll('#rq-itens [data-rql]')];
+  rows.forEach(r=>{ r.querySelector('.rl-v').textContent = num2(r2((Number(r.querySelector('.rl-q').value)||0)*(Number(r.querySelector('.rl-p').value)||0))); });
+  const t = reqTotais(reqLerLinhas(), Number(el('rq-imposto').value)||0);
+  el('rq-total').textContent = 'Total da factura: MZN '+num2(t.total);
+  el('rq-cheque-box').style.display = el('rq-fonte').value==='Cheque' ? '' : 'none';
+}
+function reqAddLinha(i){ if(document.querySelectorAll('#rq-itens [data-rql]').length>=8){ toast('⚠️ O modelo tem no máximo 8 linhas.'); return; } el('rq-itens').insertAdjacentHTML('beforeend', reqLinhaHtml(i||{})); reqRecalc(); }
+function reqForm(id){
+  if(!ehFin2()) return;
+  const r = id ? requisicoes.find(x=>x.id===id) : null;
+  if(id && (!r || !(r.estado==='Emitida' || r.estado==='Não conforme'))) return;
+  let m = el('modal-req');
+  if(!m){ m = document.createElement('div'); m.className = 'modal-bg'; m.id = 'modal-req'; document.body.appendChild(m); }
+  const op = (arr,v)=>arr.map(o=>`<option ${o===v?'selected':''}>${o}</option>`).join('');
+  m.innerHTML = `<div class="modal" style="max-width:760px;"><div class="modal-head"><h3>${r?'Editar requisição '+esc(r.numero):'Nova requisição interna de pagamento'}</h3><button class="modal-close" onclick="closeModal('modal-req')">✕</button></div>
+  <div class="modal-body">
+    <div class="field-row"><div class="field"><label>Fornecedor *</label><input id="rq-forn" type="text" value="${esc(r?r.fornecedor:'')}"></div><div class="field"><label>NUIT</label><input id="rq-nuit" type="text" value="${esc(r?r.fornecedorNuit||'':'')}"></div></div>
+    <div class="field"><label>Endereço do fornecedor</label><input id="rq-end" type="text" value="${esc(r?r.fornecedorEndereco||'':'')}"></div>
+    <div id="rq-itens"></div><button class="btn sm" type="button" onclick="reqAddLinha()">+ Linha</button>
+    <div class="field-row" style="margin-top:10px;"><div class="field"><label>Imposto (MZN)</label><input id="rq-imposto" type="number" step="0.01" value="${r?r.imposto:0}" oninput="reqRecalc()"></div><div class="field"><label>Taxa e nº da factura</label><input id="rq-taxa" type="text" value="${esc(r?r.taxaFactura||'':'')}"></div></div>
+    <div class="price-chip" id="rq-total">Total da factura: MZN 0,00</div>
+    <div class="field" style="margin-top:10px;"><label>Descrição de propósitos de compra *</label><textarea id="rq-prop" rows="2">${esc(r?r.proposito||'':'')}</textarea></div>
+    <div class="field-row"><div class="field"><label>Classificação da despesa na contabilidade *</label><select id="rq-class">${op(DESP_CATS, r?r.classificacao:'')}</select></div>
+      <div class="field"><label>Natureza da despesa</label><select id="rq-nat"><option value="corrente" ${r&&r.natureza==='corrente'?'selected':''}>${REQ_NATUREZA.corrente}</option><option value="naocorrente" ${r&&r.natureza==='naocorrente'?'selected':''}>${REQ_NATUREZA.naocorrente}</option></select></div></div>
+    <div class="field-row"><div class="field"><label>Fonte de pagamento</label><select id="rq-fonte" onchange="reqRecalc()">${op(REQ_FONTES, r?r.fontePagamento:'')}</select></div><div class="field" id="rq-cheque-box" style="display:none;"><label>Cheque nº</label><input id="rq-cheque" type="text" value="${esc(r?r.chequeNo||'':'')}"></div>
+      <div class="field"><label>Requisitado por</label><input id="rq-req" type="text" placeholder="Sector / pessoa que pediu" value="${esc(r?r.requisitadoPor||'':'')}"></div></div>
+  </div><div class="modal-foot"><button class="btn" onclick="closeModal('modal-req')">Cancelar</button><button class="btn solid" id="rq-ok" onclick="reqGuardar('${r?r.id:''}')">${r&&r.estado==='Não conforme'?'Corrigir e reenviar':'Emitir requisição'}</button></div></div>`;
+  (r&&r.itens&&r.itens.length ? r.itens : [{}]).forEach(i=>el('rq-itens').insertAdjacentHTML('beforeend', reqLinhaHtml(i)));
+  reqRecalc(); openModal('modal-req');
+}
+async function reqGuardar(id){
+  if(!ehFin2()) return;
+  const forn = el('rq-forn').value.trim(), prop = el('rq-prop').value.trim();
+  const t = reqTotais(reqLerLinhas().filter(i=>i.descricao.trim()||Number(i.qtd)||Number(i.preco)), Number(el('rq-imposto').value)||0);
+  if(!forn){ toast('⚠️ Indique o fornecedor.'); return; }
+  if(!t.lin.length || t.lin.some(i=>!i.descricao || !(i.qtd>0) || i.preco<0)){ toast('⚠️ Cada linha precisa de descrição, quantidade e preço.'); return; }
+  if(!(t.total>0)){ toast('⚠️ O total tem de ser maior que zero.'); return; }
+  if(t.imposto<0){ toast('⚠️ Imposto inválido.'); return; }
+  if(!prop){ toast('⚠️ Indique o propósito da compra.'); return; }
+  const dados = {fornecedor:forn, fornecedorNuit:el('rq-nuit').value.trim(), fornecedorEndereco:el('rq-end').value.trim(), itens:t.lin.map(i=>({...i, valor:r2(i.qtd*i.preco)})), subtotal:t.subtotal, imposto:t.imposto, total:t.total, taxaFactura:el('rq-taxa').value.trim(),
+    proposito:prop, classificacao:el('rq-class').value, natureza:el('rq-nat').value, fontePagamento:el('rq-fonte').value, chequeNo:el('rq-fonte').value==='Cheque'?el('rq-cheque').value.trim():'', requisitadoPor:el('rq-req').value.trim()};
+  el('rq-ok').disabled = true;
+  try{
+    if(id){
+      const r = requisicoes.find(x=>x.id===id); if(!r || !(r.estado==='Emitida'||r.estado==='Não conforme')){ toast('⚠️ Já não pode ser editada.'); el('rq-ok').disabled = false; return; }
+      await Store.setDoc('requisicoes', id, {...dados, estado:'Emitida', motivo:'', conformidade:'', verificadoPor:'', verificadoEm:'', reenviadaEm:new Date().toISOString()});
+      audit('requisicao_reenviada', 'Requisição', r.numero, `${t.total} MZN`); toast('✅ Requisição enviada de novo.');
+    } else {
+      const numero = await docSeq('RQ'), agora = new Date().toISOString();
+      await Store.addDoc('requisicoes', {numero, ...dados, estado:'Emitida', elaboradoPor:currentUser.nome, elaboradoPorId:currentUser.id, elaboradoEm:agora});
+      audit('requisicao_emitida', 'Requisição', numero, `${forn} · ${t.total} MZN`); toast(`✅ Requisição ${numero} emitida: segue para a tesoureira e para o Director.`, 6000);
+    }
+  }catch(e){ toast('⚠️ Erro: '+e.message); el('rq-ok').disabled = false; return; }
+  closeModal('modal-req');
+}
+async function reqMover(id, froms, to, patch){
+  let ok = false;
+  for(const f of froms){ try{ await Store.claim('requisicoes', id, 'estado', f, to); ok = true; break; }catch(e){} }
+  if(!ok){ toast('⚠️ Esta requisição já foi tratada por outro utilizador.'); return false; }
+  await Store.setDoc('requisicoes', id, patch); return true;
+}
+const reqGet = id => requisicoes.find(x=>x.id===id);
+async function reqCancelar(id){ const r = reqGet(id); if(!r || !ehFin2() || !confirm('Cancelar esta requisição?')) return; if(await reqMover(id, ['Emitida','Não conforme'], 'Cancelada', {canceladaPor:currentUser.nome, canceladaEm:new Date().toISOString()})) audit('requisicao_cancelada','Requisição',r.numero,''); }
+async function reqConforme(id){
+  const r = reqGet(id); if(!r || !ehTesoureiro() || r.estado!=='Emitida') return;
+  if(await reqMover(id, ['Emitida'], 'Conforme', {conformidade:'Conforme', verificadoPor:currentUser.nome, verificadoEm:new Date().toISOString(), motivo:''})){ audit('requisicao_conforme','Requisição',r.numero,''); toast('✅ Conformidade dada.'); }
+}
+function reqNaoConforme(id){
+  const r = reqGet(id); if(!r || !ehTesoureiro() || r.estado!=='Emitida') return;
+  gmodal('Não conformidade — '+r.numero, [{id:'m', label:'Motivo (o que deve ser corrigido)', type:'textarea', rows:3}], 'Devolver à emissora', async v=>{
+    if(!v.m.trim()){ toast('⚠️ Indique o motivo.'); return false; }
+    if(!(await reqMover(id, ['Emitida'], 'Não conforme', {conformidade:'Não conforme', verificadoPor:currentUser.nome, verificadoEm:new Date().toISOString(), motivo:v.m.trim()}))) return false;
+    audit('requisicao_nao_conforme','Requisição',r.numero,v.m.trim().slice(0,120)); toast('Devolvida para correcção.');
+  });
+}
+async function reqAutorizar(id){
+  const r = reqGet(id); if(!r || !(r.estado==='Emitida'||r.estado==='Conforme')) return;
+  const dir = ehDirector();
+  if(!dir && !(ehTesoureiro() && r.natureza==='corrente')){ toast('⚠️ Só o Director autoriza despesas não correntes.'); return; }
+  if(!confirm(`Autorizar a requisição ${r.numero} — MZN ${num2(r.total)} a ${r.fornecedor}?${dir && r.estado==='Emitida' ? '\n\nAinda não tem a conformidade da tesoureira.' : ''}`)) return;
+  const agora = new Date().toISOString(), patch = {autorizadoPor:currentUser.nome, autorizadoEm:agora, autorizadoNivel: dir?'director':'tesoureira', motivo:''};
+  if(!dir) Object.assign(patch, {conformidade:'Conforme', verificadoPor: r.verificadoPor||currentUser.nome, verificadoEm: r.verificadoEm||agora});
+  if(await reqMover(id, ['Emitida','Conforme'], 'Autorizada', patch)){ audit('requisicao_autorizada','Requisição',r.numero,(dir?'Director':'Tesoureira')+' · '+r.total+' MZN'); toast(dir?'✅ Requisição autorizada.':'✅ Autorizada pela tesoureira — o Director dará o visto.'); }
+}
+function reqRejeitar(id){
+  const r = reqGet(id); if(!r || !ehDirector() || !(r.estado==='Emitida'||r.estado==='Conforme')) return;
+  gmodal('Rejeitar '+r.numero, [{id:'m', label:'Motivo da rejeição', type:'textarea', rows:3}], 'Rejeitar', async v=>{
+    if(!v.m.trim()){ toast('⚠️ Indique o motivo.'); return false; }
+    if(!(await reqMover(id, ['Emitida','Conforme'], 'Rejeitada', {rejeitadaPor:currentUser.nome, rejeitadaEm:new Date().toISOString(), motivo:v.m.trim()}))) return false;
+    audit('requisicao_rejeitada','Requisição',r.numero,v.m.trim().slice(0,120)); toast('Requisição rejeitada.');
+  });
+}
+function reqVisto(id){
+  const r = reqGet(id); if(!r || !ehDirector() || r.estado!=='Autorizada' || r.autorizadoNivel!=='tesoureira' || r.vistoDirector) return;
+  gmodal('Visto do Director — '+r.numero, [{id:'n', label:'Nota / pedido de acompanhamento (opcional)', type:'textarea', rows:3}], 'Dar visto', async v=>{
+    await Store.setDoc('requisicoes', id, {vistoDirector:{por:currentUser.nome, em:new Date().toISOString(), nota:v.n.trim()}});
+    audit('requisicao_visto','Requisição',r.numero,v.n.trim().slice(0,120)); toast('✅ Visto registado.');
+  }, 'A tesoureira já autorizou esta despesa corrente e pontual. O seu visto fica registado; pode pedir acompanhamento na nota.');
+}
+function reqPagar(id){
+  const r = reqGet(id); if(!r || r.estado!=='Autorizada' || r.paga || !(ehTesoureiro()||ehFin2())) return;
+  gmodal('Registar pagamento — '+r.numero, [{id:'data', label:'Data do pagamento', type:'date', val:todayStr()}, {id:'ref', label:'Referência / nº do cheque / comprovativo', val:r.chequeNo||''}], 'Registar pagamento', async v=>{
+    try{ await Store.claim('requisicoes', id, 'estado', 'Autorizada', 'Autorizada'); }catch(e){ toast('⚠️ Estado alterado.'); return false; }
+    if(reqGet(id).paga){ toast('⚠️ Já foi paga.'); return false; }
+    const base = r.subtotal!==undefined ? r.subtotal : r2(r.total-(r.imposto||0)), iva = r.imposto||0, taxa = base>0 ? r2(iva/base*100) : 0;
+    const dId = await Store.addDoc('despesas', {numero:await docSeq('DS'), data:v.data||todayStr(), categoria:r.classificacao, descricao:r.proposito, desc:r.proposito, fornecedor:r.fornecedor, fornecedorNuit:r.fornecedorNuit||'', docFornecedor:r.taxaFactura||'', base, ivaTaxa:taxa, ivaValor:iva, total:r.total, valor:r.total,
+      estado:'Paga', metodo:REQ_METODO[r.fontePagamento]||'Numerário', refPagamento:v.ref.trim(), pagaEm:v.data||todayStr(), requisicaoId:id, requisicaoNumero:r.numero, registadoPor:currentUser.nome, criadoEm:new Date().toISOString()});
+    await Store.setDoc('requisicoes', id, {paga:true, pagaEm:v.data||todayStr(), pagaPor:currentUser.nome, despesaId:dId||''});
+    audit('requisicao_paga','Requisição',r.numero,`${r.total} MZN · ${r.fontePagamento}`); toast('✅ Pagamento registado nas despesas.');
+  });
+}
+function reqImprimir(id){
+  const r = reqGet(id); if(!r || r.estado!=='Autorizada' || !podeReq()) return;
+  const c = configDoc||{}, d = x=>x?fmtDate(x):'', bx = 'border:1px solid #000;padding:3px 6px;', ln = r.itens||[], vazias = Math.max(0, 8-ln.length);
+  const sel = f => `<span style="${bx}${r.fontePagamento===f?'background:#000;color:#fff;':''}font-size:11px;margin-right:8px;">${f==='Cheque'?'CHEQUE Nº '+esc(r.chequeNo||''):f.toUpperCase()}</span>`;
+  const assin = (tit, nome, data, sub)=>`<td style="width:25%;vertical-align:bottom;padding:4px 6px;text-align:center;font-size:11px;"><div style="font-weight:700;">${tit}</div><div style="height:34px;"></div><div style="border-top:1px solid #000;padding-top:2px;">${nome?esc(nome):'&nbsp;'}</div><div style="font-size:10px;">${data?d(data):''}${sub?(data?' · ':'')+sub:''}</div></td>`;
+  printDoc(`<div class="doc" style="font-size:12px;">
+    <table style="width:100%;border-collapse:collapse;"><tr><td style="vertical-align:top;width:52%;"><img class="doc-logo" src="${LOGO_B64}" alt="logo" style="max-height:70px;">
+      <div style="font-weight:700;margin-top:8px;">ENDEREÇO: ${esc((c.morada||'Estrada Nacional Nº 1, Bairro do Aeroporto').toUpperCase())}</div><div style="font-weight:700;">TELEFONE: ${esc(c.telefone||'861669146 / 879912776')}</div><div style="font-weight:700;">NUIT: ${esc(c.nuit||'401649093')}</div>
+      <div style="margin-top:8px;">REQUISIÇÃO INTERNA DE PAGAMENTO Nº <b>${esc(r.numero)}</b></div></td>
+      <td style="vertical-align:top;"><table style="width:100%;border-collapse:collapse;"><tr><td style="${bx}width:30%;">FORNECEDOR</td><td style="${bx}">${esc(r.fornecedor)}</td></tr><tr><td style="${bx}">NUIT</td><td style="${bx}">${esc(r.fornecedorNuit||'')}</td></tr><tr><td style="${bx}">ENDEREÇO</td><td style="${bx}">${esc(r.fornecedorEndereco||'')}</td></tr></table></td></tr></table>
+    <table style="width:100%;border-collapse:collapse;margin-top:12px;"><thead><tr><th style="${bx}width:12%;">QUANTIDADE</th><th style="${bx}">DESCRIÇÃO DO ITEM A COMPRAR</th><th style="${bx}width:14%;">PREÇO</th><th style="${bx}width:16%;">VALOR</th></tr></thead><tbody>
+      ${ln.map(i=>`<tr><td style="${bx}text-align:center;">${i.qtd}</td><td style="${bx}">${esc(i.descricao)}</td><td style="${bx}text-align:right;">${num2(i.preco)}</td><td style="${bx}text-align:right;">${num2(i.valor!==undefined?i.valor:i.qtd*i.preco)}</td></tr>`).join('')}
+      ${(`<tr><td style="${bx}height:20px;"></td><td style="${bx}"></td><td style="${bx}"></td><td style="${bx}"></td></tr>`).repeat(vazias)}
+      <tr><td colspan="2" style="${bx}font-weight:700;">IMPOSTO <span style="font-weight:400;float:right;">TAXA E Nº FACTURA: ${esc(r.taxaFactura||'')}</span></td><td style="${bx}"></td><td style="${bx}text-align:right;">${num2(r.imposto)}</td></tr>
+      <tr><td colspan="3" style="${bx}font-weight:700;">TOTAL DA FACTURA</td><td style="${bx}text-align:right;font-weight:700;">${num2(r.total)}</td></tr></tbody></table>
+    <div style="margin-top:10px;font-weight:700;">DESCRIÇÃO DE PROPÓSITOS DE COMPRA</div><div style="border-bottom:1px solid #000;min-height:34px;padding:4px 0;">${esc(r.proposito||'')}</div>
+    <div style="${bx}margin-top:10px;font-weight:700;">CLASSIFICAÇÃO DA DESPESA NA CONTABILIDADE: <span style="font-weight:400;">${esc(r.classificacao||'')}</span></div>
+    <div style="margin-top:10px;">FONTE DE PAGAMENTO: ${REQ_FONTES.map(sel).join('')}</div>
+    <table style="width:100%;border-collapse:collapse;margin-top:14px;"><tr>${assin('REQUISITADO POR', r.requisitadoPor, '', '')}${assin('ELABORADO POR', r.elaboradoPor, r.elaboradoEm, '')}${assin('VERIFICADO POR', r.verificadoPor, r.verificadoEm, 'A Tesoureira')}${assin('APROVADO POR', r.autorizadoPor, r.autorizadoEm, r.autorizadoNivel==='director'?'O Director':'A Tesoureira')}</tr></table>
+    ${r.vistoDirector?`<div style="margin-top:12px;font-size:11px;"><b>Visto do Director:</b> ${esc(r.vistoDirector.por)} · ${d(r.vistoDirector.em)}${r.vistoDirector.nota?' — '+esc(r.vistoDirector.nota):''}</div>`:''}
+    <div style="margin-top:10px;font-size:10px;">Impresso por ${esc(currentUser.nome)} em ${fmtDate(todayStr())}</div></div>`);
 }
 
 /* ================= TABELA DE PREÇOS DA FARMÁCIA (lista «Novembro 2026»: Nome / Preço / Quantidade, por grupo) ================= */
@@ -1701,6 +1980,7 @@ const MENU = [
     {id:"caixa", label:"Caixa", icon:"💵", roles:["admin","recepcao","financeiro"]},
     {id:"documentos", label:"Facturas e VD", icon:"🧾", roles:["admin","recepcao","financeiro"]},
     {id:"financeiro", label:"Financeiro", icon:"💰", roles:["admin","financeiro"]},
+    {id:"requisicoes", label:"Requisições", icon:"📄", roles:["admin","financeiro"]},
     {id:"empresas", label:"Empresas", icon:"🏢", roles:["admin","financeiro"]},
     {id:"seguradoras", label:"Seguradoras", icon:"🛡", roles:["admin","financeiro"]},
   ]},
@@ -1885,6 +2165,7 @@ function bootApp(){
   Store.listen('vendas', arr=>{ vendas = arr; if(currentUser) render(); });
   Store.listen('despesas', arr=>{ despesas = arr; if(currentUser) render(); });
   Store.listen('funcionarios', arr=>{ funcionarios = arr; if(currentUser) render(); });
+  Store.listen('requisicoes', arr=>{ requisicoes = arr; if(currentUser){ if(currentView==='requisicoes') render(); reqAvisar(); } });
   const lRh = (col, set)=>Store.listen(col, arr=>{ set(arr); if(currentUser && ['rh','financeiro'].includes(currentView)) render(); });
   lRh('salarios', a=>{ salarios = a; }); lRh('assiduidade', a=>{ assiduidade = a; }); lRh('adiantamentos', a=>{ adiantamentos = a; }); lRh('feriasPlano', a=>{ feriasPlano = a; });
   lRh('disciplinares', a=>{ disciplinares = a; }); lRh('fundoManeio', a=>{ fundoManeio = a; }); lRh('reconciliacoes', a=>{ reconciliacoes = a; }); lRh('apuramentosIva', a=>{ apuramentosIva = a; });
@@ -2202,7 +2483,7 @@ async function loginAs(u){
   buildSidebar();
   applyBranding();
   el('sb-uname').textContent = u.nome;
-  el('sb-urole').textContent = roleName(u.role);
+  el('sb-urole').textContent = roleLabel(u);
   el('sb-av').textContent = initials(u.nome);
   el('tb-date').textContent = new Date().toLocaleDateString('pt-PT',{weekday:'long', day:'2-digit', month:'long', year:'numeric'});
   const indicator = el('fb-indicator');
@@ -2233,12 +2514,13 @@ function buildSidebar(){
   const nav = document.getElementById('sb-nav');
   let html = "";
   MENU.forEach(sec=>{
-    const visible = sec.items.filter(i=>i.roles.includes(currentUser.role));
+    const visible = sec.items.filter(i=>i.roles.includes(currentUser.role) && (i.id!=='requisicoes' || podeReq()));
     if(!visible.length) return;
     html += `<div class="sb-sec-label">${sec.sec}</div>`;
     visible.forEach(it=>{ html += `<button class="sb-item" data-view="${it.id}" onclick="go('${it.id}')"><span class="ic">${it.icon}</span>${it.label}</button>`; });
   });
   nav.innerHTML = html;
+  reqBadge();
 }
 function toggleSidebar(open){ document.getElementById('sidebar').classList.toggle('open', open); document.getElementById('sb-backdrop').classList.toggle('active', open); }
 function go(view, param){
@@ -2257,7 +2539,7 @@ function closeModal(id){ document.getElementById(id).classList.remove('active');
 function render(){
   if(!currentUser) return;
   const allowed = MENU.flatMap(s=>s.items).find(i=>i.id===currentView);
-  if(allowed && !allowed.roles.includes(currentUser.role)){ currentView='pacientes'; }
+  if(allowed && (!allowed.roles.includes(currentUser.role) || (allowed.id==='requisicoes' && !podeReq()))){ currentView='pacientes'; }
   const c = document.getElementById('content');
   switch(currentView){
     case "dashboard": c.innerHTML = viewDashboard(); break;
@@ -2272,6 +2554,7 @@ function render(){
     case "prontuario": c.innerHTML = viewProntuario(); break;
     case "farmacia": c.innerHTML = viewFarmacia(); break;
     case "receitas": c.innerHTML = viewReceitasPendentes(); break;
+    case "requisicoes": c.innerHTML = viewRequisicoes(); break;
     case "minhasrx": c.innerHTML = viewMinhasReceitas(); break;
     case "financeiro": c.innerHTML = viewFinanceiro(); break;
     case "rh": c.innerHTML = viewRH(); break;
@@ -4667,10 +4950,18 @@ function finParametros(){
     <h4 style="margin:16px 0 6px;">IRPS — trabalho dependente (categoria 1), tabela mensal</h4>
     <div class="table-wrap"><table><thead><tr><th>Escalão</th><th>Rendimento mensal até (MZN) — vazio = sem limite</th><th>Taxa (%)</th><th>Parcela a abater (MZN)</th></tr></thead><tbody>
     ${es.map((e,i)=>`<tr><td>${i+1}º</td><td><input id="pf-ir-ate-${i}" type="number" step="any" value="${e.ate===null||e.ate===undefined?'':e.ate}" ${ro}></td><td><input id="pf-ir-taxa-${i}" type="number" step="any" value="${e.taxa}" ${ro}></td><td><input id="pf-ir-parc-${i}" type="number" step="any" value="${e.parcela||0}" ${ro}></td></tr>`).join('')}</tbody></table></div>
+    <div class="field-row" style="margin-top:10px;">${depDeducoes().map((v,i)=>`<div class="field"><label>Dedução mensal ao imposto — ${i<3?(i+1)+' dependente'+(i?'s':''):'4 ou mais dependentes'} (MZN)</label><input id="pf-dep-${i}" type="number" step="any" value="${v}" ${ro}></div>`).join('')}</div>
+    <div class="csub">Referência: Código do IRPS, art. 60.º — 600, 900, 1 200 e 1 800 MZN por ano (÷ 12). A dedução nunca faz o imposto ficar negativo.</div>
+    ${admFin?`<button class="btn sm" type="button" onclick="irpsRepor()">Repor tabela de referência 2025</button>`:''}
     <div class="field-row" style="margin-top:10px;"><div class="field"><label>Dedução mensal à base do IRPS (MZN)</label><input id="pf-ir-ded" type="number" step="any" value="${param('irpsDeducao',0)}" ${ro}></div>
       <div class="field"><label>INSS do trabalhador é deduzido à base do IRPS?</label><select id="pf-ir-inss" ${admFin?'':'disabled'}><option value="sim" ${param('inssDeduzIrps','sim')==='sim'?'selected':''}>Sim</option><option value="nao" ${param('inssDeduzIrps','sim')==='nao'?'selected':''}>Não</option></select></div>
       <div class="field"><label>Dias para o cálculo do desconto por falta (salário ÷ dias)</label><input id="pf-dias" type="number" step="1" value="${param('diasSalario',30)}" ${ro}></div></div>
     ${admFin?`<button class="btn solid" onclick="guardarParametros()">Guardar parâmetros</button>`:''}</div>`;
+}
+async function irpsRepor(){
+  if(!['admin','financeiro'].includes(currentUser.role) || !confirm('Repor os escalões do IRPS e as deduções por dependentes para os valores de referência de 2025?')) return;
+  await Store.setDoc('config','main', {irpsEscaloes:IRPS_DEF, irpsDepMensal:DEP_DEDUC_DEF});
+  audit('parametros_fiscais', 'Configuração', '', 'tabela IRPS de referência reposta'); toast('✅ Tabela de referência reposta.');
 }
 async function guardarParametros(){
   if(!['admin','financeiro'].includes(currentUser.role)) return;
@@ -4692,7 +4983,8 @@ async function guardarParametros(){
   if(!escaloes.length || escaloes[escaloes.length-1].ate!==null){ toast("⚠️ O último escalão deve ficar sem limite."); return; }
   const ded = Number(el('pf-ir-ded').value||0), dias = Number(el('pf-dias').value);
   if(isNaN(ded)||ded<0||!(dias>=20&&dias<=31)){ toast("⚠️ Dedução ou dias de cálculo inválidos (20 a 31 dias)."); return; }
-  await Store.setDoc('config','main', {ivaTaxas: taxas.join(','), inssTrabalhador:t, inssEmpregador:e, ivaVenda, irpsEscaloes:escaloes, irpsDeducao:ded, inssDeduzIrps:el('pf-ir-inss').value, diasSalario:dias});
+  const depM = [0,1,2,3].map(i=>Number(el('pf-dep-'+i).value)); if(depM.some(x=>isNaN(x)||x<0)){ toast('⚠️ Deduções por dependentes inválidas.'); return; }
+  await Store.setDoc('config','main', {irpsDepMensal:depM, ivaTaxas: taxas.join(','), inssTrabalhador:t, inssEmpregador:e, ivaVenda, irpsEscaloes:escaloes, irpsDeducao:ded, inssDeduzIrps:el('pf-ir-inss').value, diasSalario:dias});
   audit('parametros_fiscais', 'Configuração', '', `IVA ${taxas.join('/')} · INSS ${t}% + ${e}% · IRPS ${escaloes.length} escalões`);
   toast("✅ Parâmetros guardados.");
 }
@@ -4763,7 +5055,8 @@ function presencaTopo(){
 }
 
 /* ---- IRPS e folha ---- */
-const IRPS_DEF = [{ate:3500,taxa:10,parcela:0},{ate:14000,taxa:15,parcela:175},{ate:42000,taxa:20,parcela:875},{ate:126000,taxa:25,parcela:2975},{ate:null,taxa:32,parcela:11795}];
+/* Tabela mensal de retenção na fonte (trabalho dependente), referência 2025: isento até 20 249,99; imposto = taxa × rendimento − parcela a abater (equivale a: valor fixo + taxa sobre o excesso do escalão). */
+const IRPS_DEF = [{ate:20249.99,taxa:0,parcela:0},{ate:22249.99,taxa:10,parcela:2025},{ate:32749.99,taxa:15,parcela:3137.5},{ate:60749.99,taxa:20,parcela:4775},{ate:144749.99,taxa:25,parcela:7812.5},{ate:null,taxa:32,parcela:17945}];
 function irpsEscaloes(){ const e = param('irpsEscaloes', null); return Array.isArray(e) && e.length ? e : IRPS_DEF; }
 function calcIrps(base){
   base = Number(base)||0; if(base<=0) return 0;
@@ -4783,8 +5076,8 @@ function folhaLinha(f, mes){
   const desc = r2(base/dias*nf), bruto = Math.max(0, r2(base-desc));
   const inssT = r2(bruto*paramNum('inssTrabalhador',3)/100), inssE = r2(bruto*paramNum('inssEmpregador',4)/100);
   const baseIrps = Math.max(0, r2(bruto - (param('inssDeduzIrps','sim')==='sim' ? inssT : 0) - paramNum('irpsDeducao',0)));
-  const irps = calcIrps(baseIrps), ads = adiantParcelas(f.id, mes), adTot = r2(ads.reduce((s,x)=>s+x.valor,0));
-  return {funcId:f.id, nome:f.nome, cargo:f.cargo||'', nuit:f.nuit||'', base, faltas:nf, descFaltas:desc, bruto, inssT, inssE, baseIrps, irps, adiant:adTot, liquido:r2(bruto-inssT-irps-adTot), parcelas:ads};
+  const nDep = depElegiveis(f).length, irpsBruto = calcIrps(baseIrps), dedDep = Math.min(irpsBruto, depDeducaoMensal(nDep)), irps = r2(irpsBruto - dedDep), ads = adiantParcelas(f.id, mes), adTot = r2(ads.reduce((s,x)=>s+x.valor,0));
+  return {funcId:f.id, nome:f.nome, cargo:f.cargo||'', nuit:f.nuit||'', base, faltas:nf, descFaltas:desc, bruto, inssT, inssE, baseIrps, irpsBruto, nDep, dedDep, irps, adiant:adTot, liquido:r2(bruto-inssT-irps-adTot), parcelas:ads};
 }
 function folhaTotais(l){ const s = k => r2(l.reduce((t,x)=>t+(Number(x[k])||0),0)); return {totBase:s('base'), totBruto:s('bruto'), totInssT:s('inssT'), totInssE:s('inssE'), totIrps:s('irps'), totAdiant:s('adiant'), totLiquido:s('liquido')}; }
 function folhaCalc(mes){
@@ -4814,9 +5107,9 @@ function rhFolha(){
   return `<div class="card"><h3>Folha de salários</h3>
     <div class="csub">Salário base − faltas injustificadas e licenças sem vencimento (salário ÷ ${paramNum('diasSalario',30)} dias) − INSS do trabalhador − IRPS − adiantamentos a descontar. Taxas e escalões em <b>Financeiro → Parâmetros fiscais</b> (confirmar com o contabilista).</div>
     <div class="toolbar">${mesSelector(rhMes,'setRhMes')}<div style="align-self:flex-end;">${c.fechada?`<span class="tag green">Folha processada em ${fmtDate(c.processadaEm)} por ${esc(c.processadaPor||'')}</span>`:'<span class="tag amber">Pré-visualização — ainda não processada</span>'}</div></div>
-    <div class="table-wrap"><table><thead><tr><th>Funcionário</th><th>Salário base</th><th>Faltas</th><th>Desc. faltas</th><th>Bruto</th><th>INSS (trab.)</th><th>IRPS</th><th>Adiantamentos</th><th>Líquido</th><th></th></tr></thead>
-    <tbody>${c.linhas.map(l=>`<tr><td class="cell-name">${esc(l.nome)}<div class="cell-sub">${esc(l.cargo)}</div></td><td>${fmtMZN(l.base)}</td><td>${l.faltas}</td><td>${fmtMZN(l.descFaltas)}</td><td>${fmtMZN(l.bruto)}</td><td>${fmtMZN(l.inssT)}</td><td>${fmtMZN(l.irps)}</td><td>${fmtMZN(l.adiant)}</td><td><b>${fmtMZN(l.liquido)}</b></td><td><button class="btn sm ghost" onclick="folhaRecibo('${l.funcId}')">Recibo</button></td></tr>`).join('') || `<tr><td colspan="10"><div class="empty">Sem funcionários activos neste mês.</div></td></tr>`}</tbody>
-    <tfoot><tr><td><b>Totais</b></td><td>${fmtMZN(c.totBase)}</td><td></td><td></td><td>${fmtMZN(c.totBruto)}</td><td>${fmtMZN(c.totInssT)}</td><td>${fmtMZN(c.totIrps)}</td><td>${fmtMZN(c.totAdiant)}</td><td><b>${fmtMZN(c.totLiquido)}</b></td><td></td></tr></tfoot></table></div>
+    <div class="table-wrap"><table><thead><tr><th>Funcionário</th><th>Salário base</th><th>Faltas</th><th>Desc. faltas</th><th>Bruto</th><th>INSS (trab.)</th><th>Dep.</th><th>IRPS</th><th>Adiantamentos</th><th>Líquido</th><th></th></tr></thead>
+    <tbody>${c.linhas.map(l=>`<tr><td class="cell-name">${esc(l.nome)}<div class="cell-sub">${esc(l.cargo)}</div></td><td>${fmtMZN(l.base)}</td><td>${l.faltas}</td><td>${fmtMZN(l.descFaltas)}</td><td>${fmtMZN(l.bruto)}</td><td>${fmtMZN(l.inssT)}</td><td>${l.nDep||0}</td><td>${fmtMZN(l.irps)}</td><td>${fmtMZN(l.adiant)}</td><td><b>${fmtMZN(l.liquido)}</b></td><td><button class="btn sm ghost" onclick="folhaRecibo('${l.funcId}')">Recibo</button></td></tr>`).join('') || `<tr><td colspan="10"><div class="empty">Sem funcionários activos neste mês.</div></td></tr>`}</tbody>
+    <tfoot><tr><td><b>Totais</b></td><td>${fmtMZN(c.totBase)}</td><td></td><td></td><td>${fmtMZN(c.totBruto)}</td><td>${fmtMZN(c.totInssT)}</td><td></td><td>${fmtMZN(c.totIrps)}</td><td>${fmtMZN(c.totAdiant)}</td><td><b>${fmtMZN(c.totLiquido)}</b></td><td></td></tr></tfoot></table></div>
     <div class="csub" style="margin-top:8px;">INSS do empregador (${paramNum('inssEmpregador',4)}%): <b>${fmtMZN(c.totInssE)}</b> · IRPS retido a entregar à AT: <b>${fmtMZN(c.totIrps)}</b> · Custo total da folha para a clínica: <b>${fmtMZN(r2(c.totBruto+c.totInssE))}</b></div>
     <div class="row-flex" style="margin-top:12px;flex-wrap:wrap;">
       ${c.fechada ? `<button class="btn solid" onclick="folhaPagar('sal')" ${pagoSal?'disabled':''}>${pagoSal?'Salários pagos em '+fmtDate(pagoSal):'Registar pagamento dos salários'}</button>
@@ -4888,7 +5181,7 @@ function folhaRecibo(fid){
     <tr><td>Desconto por faltas (${l.faltas})</td><td style="text-align:right;">− ${fmtMZN(l.descFaltas)}</td></tr>
     <tr><td><b>Remuneração bruta</b></td><td style="text-align:right;"><b>${fmtMZN(l.bruto)}</b></td></tr>
     <tr><td>INSS (${paramNum('inssTrabalhador',3)}%)</td><td style="text-align:right;">− ${fmtMZN(l.inssT)}</td></tr>
-    <tr><td>IRPS (base ${fmtMZN(l.baseIrps)})</td><td style="text-align:right;">− ${fmtMZN(l.irps)}</td></tr>
+    <tr><td>IRPS (base ${fmtMZN(l.baseIrps)}${l.nDep?` · ${l.nDep} dependente(s): −${fmtMZN(l.dedDep)}`:''})</td><td style="text-align:right;">− ${fmtMZN(l.irps)}</td></tr>
     <tr><td>Desconto de adiantamentos</td><td style="text-align:right;">− ${fmtMZN(l.adiant)}</td></tr>
     <tr><td><b>Salário líquido</b></td><td style="text-align:right;"><b>${fmtMZN(l.liquido)}</b></td></tr></tbody></table>
     <div style="margin-top:40px;display:flex;gap:40px;font-size:12px;"><div style="flex:1;border-top:1px solid #000;padding-top:4px;">A entidade empregadora</div><div style="flex:1;border-top:1px solid #000;padding-top:4px;">O trabalhador</div></div>${docFooter(currentUser.nome)}</div>`);
@@ -5398,6 +5691,57 @@ function ivaImprimir(){
     <div class="doc-totais"><div><span>IVA liquidado</span><b>${fmtMZN(c.liquidado)}</b></div><div><span>IVA dedutível</span><b>${fmtMZN(c.dedutivel)}</b></div><div><span>Crédito do mês anterior</span><b>${fmtMZN(c.credAnt)}</b></div><div style="font-weight:700;"><span>${c.res>=0?'IVA a pagar':'Crédito a transportar'}</span><b>${fmtMZN(Math.abs(c.res))}</b></div></div>${docFooter(currentUser.nome)}</div>`);
 }
 
+
+/* ---- dependentes para o IRPS (Lei 33/2007, art. 18.º n.º 4 e art. 60.º) ---- */
+const DEP_PARENTESCO = [
+  ['filho_menor','Filho(a), adoptado(a) ou enteado(a) menor (menos de 18 anos, não emancipado)'],
+  ['filho_estudante','Filho(a), adoptado(a) ou enteado(a) maior, até 25 anos (12.ª classe/secundário/superior ou serviço militar)'],
+  ['filho_incapaz','Filho(a), adoptado(a) ou enteado(a) incapacitado(a) para o trabalho (sem limite de idade)'],
+  ['tutela','Menor sob tutela (sem rendimentos)'],
+  ['ascendente','Pai, mãe, avô ou avó a cargo e incapaz para o trabalho']];
+const DEP_DEDUC_DEF = [50,75,100,150];   // dedução mensal ao IRPS: 1, 2, 3 e 4 ou mais dependentes (600/900/1200/1800 por ano ÷ 12)
+function depDeducoes(){ const d = param('irpsDepMensal', null); return Array.isArray(d) && d.length===4 ? d.map(Number) : DEP_DEDUC_DEF; }
+function depValida(d){
+  const idade = Number(d.idade), nome = String(d.nome||'').trim();
+  if(!nome) return {ok:false, motivo:'falta o nome'};
+  if(!String(d.doc||'').trim()) return {ok:false, motivo:'falta o nº do documento (BI, cédula ou passaporte)'};
+  if(!(idade>=0 && idade<=120) || d.idade==='' || d.idade===undefined) return {ok:false, motivo:'falta a idade'};
+  if(!DEP_PARENTESCO.some(p=>p[0]===d.parentesco)) return {ok:false, motivo:'parentesco não aceite'};
+  if(d.semRendimento!=='sim') return {ok:false, motivo:'não confirmado que não tem rendimentos acima do limite'};
+  if((d.parentesco==='filho_menor'||d.parentesco==='tutela') && idade>=18) return {ok:false, motivo:'já tem 18 anos ou mais'};
+  if(d.parentesco==='filho_estudante' && (idade<18 || idade>25)) return {ok:false, motivo:'só entre 18 e 25 anos'};
+  if(d.parentesco==='filho_estudante' && d.condicao!=='sim') return {ok:false, motivo:'falta comprovar estudos ou serviço militar'};
+  if((d.parentesco==='filho_incapaz'||d.parentesco==='ascendente') && d.condicao!=='sim') return {ok:false, motivo:'falta comprovar a incapacidade'};
+  return {ok:true, motivo:''};
+}
+function depElegiveis(f){ return (f.dependentes||[]).filter(d=>depValida(d).ok); }
+function depDeducaoMensal(n){ const t = depDeducoes(); return n<=0 ? 0 : t[Math.min(n,4)-1]; }
+let depSeq = 0;
+function depLinhaHtml(d){
+  const id = ++depSeq, v = depValida(d), pc = d.parentesco||'filho_menor';
+  return `<div class="card" style="padding:8px;margin:8px 0;" data-dep="${id}">
+    <div class="field-row"><div class="field"><label>Nome</label><input class="dp-nome" type="text" value="${esc(d.nome||'')}" oninput="depRes()"></div>
+      <div class="field"><label>Nº do documento (BI/cédula)</label><input class="dp-doc" type="text" value="${esc(d.doc||'')}" oninput="depRes()"></div>
+      <div class="field" style="max-width:90px;"><label>Idade</label><input class="dp-idade" type="number" min="0" value="${d.idade===undefined?'':esc(String(d.idade))}" oninput="depRes()"></div></div>
+    <div class="field"><label>Relação de parentesco</label><select class="dp-par" onchange="depRes()">${DEP_PARENTESCO.map(p=>`<option value="${p[0]}" ${p[0]===pc?'selected':''}>${p[1]}</option>`).join('')}</select></div>
+    <div class="field-row"><div class="field"><label>Condição comprovada (estudos/serviço militar ou incapacidade)</label><select class="dp-cond" onchange="depRes()"><option value="nao" ${d.condicao==='sim'?'':'selected'}>Não / não se aplica</option><option value="sim" ${d.condicao==='sim'?'selected':''}>Sim, comprovada</option></select></div>
+      <div class="field"><label>Rendimento anual do dependente dentro do limite (≤ 12 salários mínimos)?</label><select class="dp-rend" onchange="depRes()"><option value="nao" ${d.semRendimento==='sim'?'':'selected'}>Não confirmado</option><option value="sim" ${d.semRendimento==='sim'?'selected':''}>Sim, confirmado</option></select></div>
+      <div class="field" style="align-self:flex-end;"><button class="btn sm danger" type="button" onclick="this.closest('[data-dep]').remove();depRes()">Remover</button></div></div>
+    <div class="cell-sub dp-estado"></div></div>`;
+}
+function depAdd(d){ el('ff-deps').insertAdjacentHTML('beforeend', depLinhaHtml(d||{})); depRes(); }
+function depLer(){
+  return [...d_all('#ff-deps [data-dep]')].map(r=>({nome:r.querySelector('.dp-nome').value.trim(), doc:r.querySelector('.dp-doc').value.trim(), idade:r.querySelector('.dp-idade').value===''?'':Number(r.querySelector('.dp-idade').value),
+    parentesco:r.querySelector('.dp-par').value, condicao:r.querySelector('.dp-cond').value, semRendimento:r.querySelector('.dp-rend').value}));
+}
+function d_all(q){ return document.querySelectorAll(q); }
+function depRes(){
+  const l = depLer(), rows = [...d_all('#ff-deps [data-dep]')]; let n = 0;
+  l.forEach((d,i)=>{ const v = depValida(d); if(v.ok) n++; rows[i].querySelector('.dp-estado').innerHTML = v.ok ? '<span class="tag green">Aceite para o IRPS</span>' : `<span class="tag red">Não conta: ${esc(v.motivo)}</span>`; });
+  const r = el('ff-deps-res'); if(r) r.innerHTML = l.length ? `<b>${n}</b> dependente(s) aceite(s) · dedução mensal ao IRPS: <b>${fmtMZN(depDeducaoMensal(n))}</b>` : 'Sem dependentes registados.';
+}
+function depTexto(l){ return (l||[]).map(d=>`${d.nome} (${d.idade}, ${(DEP_PARENTESCO.find(p=>p[0]===d.parentesco)||[])[0]||'?'}, ${d.doc})`).join('; '); }
+
 function openFuncionarioModal(id){
   if(id ? !podeRH() : !podeRHOper()) return;
   const f = id ? funcionarios.find(x=>x.id===id) : null;
@@ -5408,6 +5752,7 @@ function openFuncionarioModal(id){
   el('ff-bi').value = f?(f.bi||''):''; el('ff-nuit').value = f?(f.nuit||''):''; el('ff-morada').value = f?(f.morada||''):'';
   el('ff-tipo-contrato').innerHTML = TIPOS_CONTRATO.map(t=>`<option ${f&&f.tipoContrato===t?'selected':''}>${t}</option>`).join('');
   el('ff-salario').value = f?f.salarioBase:''; el('ff-faltas').value = f?(f.faltasMes||0):0;
+  el('ff-deps').innerHTML = ''; ((f&&f.dependentes)||[]).forEach(d=>depAdd(d)); depRes();
   openModal('modal-funcionario');
 }
 async function saveFuncionario(){
@@ -5418,11 +5763,12 @@ async function saveFuncionario(){
   const salario = Number(el('ff-salario').value)||0;
   if(salario<0){ toast("⚠️ O salário não pode ser negativo."); return; }
   const data = {nome, cargo:el('ff-cargo').value.trim(), departamento:el('ff-depto').value.trim(), dataAdmissao:el('ff-data').value, contacto:el('ff-contacto').value.trim(),
-    bi:el('ff-bi').value.trim(), nuit:el('ff-nuit').value.trim(), morada:el('ff-morada').value.trim(), tipoContrato:el('ff-tipo-contrato').value, salarioBase:salario, faltasMes:Number(el('ff-faltas').value)||0};
+    bi:el('ff-bi').value.trim(), nuit:el('ff-nuit').value.trim(), morada:el('ff-morada').value.trim(), tipoContrato:el('ff-tipo-contrato').value, salarioBase:salario, faltasMes:Number(el('ff-faltas').value)||0, dependentes:depLer().filter(d=>d.nome||d.doc)};
   const editId = el('modal-funcionario').dataset.editId, atual = editId ? funcionarios.find(x=>x.id===editId) : null, agora = new Date().toISOString();
   if(atual){
     const alt = Object.keys(CAMPOS_FUNC).filter(k=>String(data[k]===undefined?'':data[k])!==String(atual[k]===undefined?'':atual[k]));
-    if(alt.length) data.historico = (atual.historico||[]).concat([{em:agora, por:currentUser.nome, acao:'Alteração de dados', detalhe:alt.map(k=>`${CAMPOS_FUNC[k]}: "${atual[k]===undefined||atual[k]===''?'—':atual[k]}" → "${data[k]===''?'—':data[k]}"`).join(' · ').slice(0,400)}]);
+    if(depTexto(data.dependentes)!==depTexto(atual.dependentes)) alt.push('dependentes');
+    if(alt.length) data.historico = (atual.historico||[]).concat([{em:agora, por:currentUser.nome, acao:'Alteração de dados', detalhe:alt.map(k=>k==='dependentes' ? `Dependentes: ${depElegiveis({dependentes:atual.dependentes}).length} → ${depElegiveis(data).length} aceites` : `${CAMPOS_FUNC[k]}: "${atual[k]===undefined||atual[k]===''?'—':atual[k]}" → "${data[k]===''?'—':data[k]}"`).join(' · ').slice(0,400)}]);
     await Store.setDoc('funcionarios', editId, data);
   } else {
     await Store.addDoc('funcionarios', {...data, ativo:true, historico:[{em:agora, por:currentUser.nome, acao:'Admissão', detalhe:`${data.cargo||'—'} · ${data.departamento||'—'} · ${data.tipoContrato}`}]});
@@ -5595,7 +5941,7 @@ function viewUtilizadores(){
         <td class="row-flex"><div class="avatar">${initials(u.nome)}</div><div class="cell-name">${esc(u.nome)}</div></td>
         <td>${u.role==='medico' ? (acessoMedicoOk(u) ? '<span class="cell-sub">Entra com o email</span>' : '<span class="tag red">Sem acesso — criar acesso por email</span>') : (u.username ? esc(u.username) : '<span class="tag red">Sem acesso — definir utilizador e password</span>')}</td>
         <td>${u.email ? esc(u.email) : (u.role==='medico' ? '<span class="tag amber">Em falta</span>' : '<span class="cell-sub">—</span>')}${u.role==='medico' ? `<div class="cell-sub">${u.telefone ? '📱 '+esc(telMostrar(u.telefone)) : '<span style="color:#b45309;">Sem telemóvel</span>'}</div>` : ''}</td>
-        <td><span class="tag blue">${roleName(u.role)}</span>${u.role==='medico' ? `<div class="cell-sub">${u.especialidadeId ? esc(espNomeDe(u.especialidadeId)) : '<span style="color:#b45309;">Sem especialidade</span>'}</div>` : ''}</td>
+        <td><span class="tag blue">${roleLabel(u)}</span>${u.role==='medico' ? `<div class="cell-sub">${u.especialidadeId ? esc(espNomeDe(u.especialidadeId)) : '<span style="color:#b45309;">Sem especialidade</span>'}</div>` : ''}</td>
         <td>${u.ativo===false?'<span class="tag red">Inactivo</span>':(u.mustChange?'<span class="tag amber">Aguarda 1.º acesso</span>':'<span class="tag green">Activo</span>')}</td>
         <td style="white-space:nowrap;">
           <button class="btn sm ghost" onclick="openUserModal('${u.id}')">Editar</button>
@@ -5633,6 +5979,13 @@ function ufRoleChanged(){
   el('uf-email-label').textContent = med ? 'Email do médico * (é com este email que entra no sistema)' : 'Email (opcional)';
   el('uf-username-box').style.display = med ? 'none' : '';
   el('uf-esp-box').style.display = med ? '' : 'none'; el('uf-tel-box').style.display = med ? '' : 'none';
+  const rl = el('uf-role').value, nb = el('uf-nivel-box');
+  if(rl==='admin' || rl==='financeiro'){
+    const opts = rl==='admin' ? [['director','Director — vê e autoriza as requisições de pagamento'],['clinica','Administrador da Clínica — sem acesso às requisições']] : [['2','Nível 2 — emite requisições de pagamento'],['1','Nível 1 — Tesoureiro: verifica e autoriza requisições (despesas correntes e pontuais)']];
+    el('uf-nivel-label').textContent = rl==='admin' ? 'Nível do Administrador' : 'Nível do Financeiro';
+    el('uf-nivel').innerHTML = opts.map(o=>`<option value="${o[0]}">${o[1]}</option>`).join('');
+    el('uf-nivel').value = u && u.role===rl && u.nivel ? u.nivel : opts[0][0]; nb.style.display = '';
+  } else nb.style.display = 'none';
   el('uf-email').disabled = !!comAuth;
   el('uf-reset-box').style.display = comAuth ? '' : 'none';
   el('uf-pass-box').style.display = (comAuth || (u && u.id===currentUser.id)) ? 'none' : '';
@@ -5689,7 +6042,7 @@ async function saveUser(){
   if(existing && existing.role==='admin' && role!=='admin' && activeAdmins().length<=1 && activeAdmins().some(a=>a.id===existing.id)){
     toast("⚠️ Tem de existir pelo menos um Administrador activo."); return;
   }
-  const data = {nome, role, email};
+  const data = {nome, role, email, nivel: (role==='admin'||role==='financeiro') ? el('uf-nivel').value : null};
   if(med){ data.especialidadeId = espId; data.telefone = tel; if(existing) data.username = null; }
   else { data.username = username; if(existing && existing.role==='medico'){ data.especialidadeId = null; data.telefone = null; data.authUid = null; data.authOk = null; } }
   let aviso = '';
@@ -5778,7 +6131,7 @@ function viewConfig(){
   const c = configDoc || {};
   return `
   <div class="page-head"><div><h1>Configurações</h1><div class="desc">Dados da clínica e preferências do sistema</div></div></div>
-  ${currentUser.role==='admin' ? cardApagarConsultas()+cardTabela2026()+cardTabelaFarmacia()+cardImportExcel() : ''}
+  ${currentUser.role==='admin' ? cardLimparTeste()+cardApagarConsultas()+cardTabela2026()+cardTabelaFarmacia()+cardImportExcel() : ''}
   <div class="grid-2">
     <div class="card">
       <h3>Dados da clínica</h3>
@@ -5868,7 +6221,7 @@ async function resetSistema(){
   if(!confirm("ATENÇÃO: isto vai apagar PERMANENTEMENTE todos os dados do sistema — pacientes, consultas, facturas, receitas, stock, vendas, despesas, funcionários, especialidades e utilizadores. Esta ação não pode ser desfeita. Continuar?")) return;
   const confirmText = prompt('Para confirmar, escreva exactamente: APAGAR TUDO');
   if(confirmText !== 'APAGAR TUDO'){ toast("Reset cancelado — texto de confirmação não corresponde."); return; }
-  const collections = ['contadores','patients','appointments','queue','invoices','especialidades','prontuarios','receitas','medicamentos','vendas','despesas','funcionarios','alertas','emails','tratamentos','exames','tratamentosPrescritos','pedidosExame','empresas','seguradoras','camas','internamentos','cardex','administracoes','diarioEnfermagem','sinaisVitais','passagensTurno','referenciacoes','beneficiarios','recebimentos','contasInt','tratamentosInt','movimentosStock','planos','internadosAtivos','users','config','presenca','salarios','assiduidade','adiantamentos','feriasPlano','disciplinares','fundoManeio','reconciliacoes','apuramentosIva'];   // 'auditoria' é preservada
+  const collections = ['contadores','patients','appointments','queue','invoices','especialidades','prontuarios','receitas','medicamentos','vendas','despesas','funcionarios','alertas','emails','tratamentos','exames','tratamentosPrescritos','pedidosExame','empresas','seguradoras','camas','internamentos','cardex','administracoes','diarioEnfermagem','sinaisVitais','passagensTurno','referenciacoes','beneficiarios','recebimentos','contasInt','tratamentosInt','movimentosStock','planos','internadosAtivos','users','config','requisicoes','presenca','salarios','assiduidade','adiantamentos','feriasPlano','disciplinares','fundoManeio','reconciliacoes','apuramentosIva'];   // 'auditoria' é preservada
   toast("⏳ A apagar todos os dados…", 60000);
   auditSuspended = true;
   try{
@@ -6559,7 +6912,7 @@ function aplicarFiltroAuditoria(){
 
 /* ================= CÓPIA DE SEGURANÇA ================= */
 const BACKUP_COLS = ['contadores','config','users','patients','appointments','queue','invoices','especialidades','prontuarios','receitas','medicamentos','vendas','despesas',
-  'funcionarios','alertas','emails','tratamentos','exames','tratamentosPrescritos','pedidosExame','empresas','seguradoras','camas','internamentos','cardex','administracoes','diarioEnfermagem','sinaisVitais','passagensTurno','referenciacoes','beneficiarios','recebimentos','contasInt','tratamentosInt','movimentosStock','planos','internadosAtivos','salarios','assiduidade','adiantamentos','feriasPlano','disciplinares','fundoManeio','reconciliacoes','apuramentosIva','auditoria'];
+  'funcionarios','alertas','emails','tratamentos','exames','tratamentosPrescritos','pedidosExame','empresas','seguradoras','camas','internamentos','cardex','administracoes','diarioEnfermagem','sinaisVitais','passagensTurno','referenciacoes','beneficiarios','recebimentos','contasInt','tratamentosInt','movimentosStock','planos','internadosAtivos','requisicoes','salarios','assiduidade','adiantamentos','feriasPlano','disciplinares','fundoManeio','reconciliacoes','apuramentosIva','auditoria'];
 function baixarFicheiro(nome, texto, tipo){
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([texto], {type: tipo||'application/json'}));
